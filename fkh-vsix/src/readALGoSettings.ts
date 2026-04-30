@@ -206,12 +206,7 @@ export async function createReadSettingsOptions(githubToken: string, preselected
 
 // ── Settings reading logic (port of C# ReadALGoSettings) ──────────────────────
 
-export interface ReadSettingsResult {
-  settings: Record<string, unknown>;
-  warnings: string[];
-}
-
-export async function readSettings(options: ReadSettingsOptions): Promise<ReadSettingsResult> {
+export async function readSettings(options: ReadSettingsOptions): Promise<Record<string, unknown>> {
   if (!options.baseFolder) {
     throw new Error('baseFolder is required');
   }
@@ -241,8 +236,8 @@ export async function readSettings(options: ReadSettingsOptions): Promise<ReadSe
     }
   }
 
-  const warnings = postProcessSettings(settings, options.project);
-  return { settings, warnings };
+  postProcessSettings(settings, options.project);
+  return settings;
 }
 
 function sanitizeWorkflowName(workflowName: string): string {
@@ -445,9 +440,7 @@ function getString(obj: Record<string, unknown>, key: string, fallback = ''): st
   return String(value);
 }
 
-function postProcessSettings(settings: Record<string, unknown>, project: string): string[] {
-  const warnings: string[] = [];
-
+function postProcessSettings(settings: Record<string, unknown>, project: string): void {
   const runsOn = getString(settings, 'runs-on');
   let shell = getString(settings, 'shell');
   let githubRunner = getString(settings, 'githubRunner');
@@ -486,25 +479,17 @@ function postProcessSettings(settings: Record<string, unknown>, project: string)
   }
 
   // Resolve artifact country: if the artifact shorthand omits the country segment, inject it
-  // from the 'country' setting. If both specify a country and they differ, the artifact wins
-  // and a warning is returned for callers to surface.
+  // from the 'country' setting.
   const artifact = getString(settings, 'artifact');
   const country = getString(settings, 'country');
   if (artifact && !artifact.startsWith('https://') && country) {
     // Shorthand format: storageAccount/type/version/country/select
     // Pad with extra slashes so split always yields at least 5 parts
     const segments = `${artifact}/////`.split('/');
-    const artifactCountry = segments[3];
-    if (!artifactCountry) {
+    if (!segments[3]) {
       settings['artifact'] = [segments[0], segments[1], segments[2], country, segments[4]].join('/').replace(/\/+$/, '');
-    } else if (artifactCountry.toLowerCase() !== country.toLowerCase()) {
-      warnings.push(
-        `Ambiguous country definition. Artifact setting specifies '${artifactCountry}' but country setting is '${country}'. The artifact setting determines the country.`
-      );
     }
   }
-
-  return warnings;
 }
 
 function getDefaultSettings(repoName: string): Record<string, unknown> {

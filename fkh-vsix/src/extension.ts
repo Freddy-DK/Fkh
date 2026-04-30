@@ -992,9 +992,8 @@ async function createContainer(project?: string): Promise<void> {
   }
 
   let settings: Record<string, unknown>;
-  let settingsWarnings: string[];
   try {
-    ({ settings, warnings: settingsWarnings } = await readSettings(options));
+    settings = await readSettings(options);
   } catch (err) {
     vscode.window.showErrorMessage(`Fkh: Failed to read AL-Go settings: ${err instanceof Error ? err.message : String(err)}`);
     return;
@@ -1028,10 +1027,6 @@ async function createContainer(project?: string): Promise<void> {
   outputChannel.appendLine(`  environmentSettingsVariableValue: ${options.environmentSettingsVariableValue || '(empty)'}`);
   outputChannel.appendLine(`  environmentName: ${options.environmentName || '(empty)'}`);
   outputChannel.appendLine(`  customSettings: ${options.customSettings || '(empty)'}`);
-
-  for (const warning of settingsWarnings) {
-    outputChannel.appendLine(`  Warning: ${warning}`);
-  }
 
   const artifactUrl = artifact || `///${country}/latest`;
 
@@ -1076,9 +1071,8 @@ async function createImage(): Promise<void> {
   }
 
   let settings: Record<string, unknown>;
-  let settingsWarnings: string[];
   try {
-    ({ settings, warnings: settingsWarnings } = await readSettings(options));
+    settings = await readSettings(options);
   } catch (err) {
     vscode.window.showErrorMessage(`Fkh: Failed to read AL-Go settings: ${err instanceof Error ? err.message : String(err)}`);
     return;
@@ -1088,10 +1082,6 @@ async function createImage(): Promise<void> {
   if (!artifact) {
     vscode.window.showWarningMessage('Fkh: No artifact setting found in AL-Go settings.');
     return;
-  }
-
-  for (const warning of settingsWarnings) {
-    outputChannel.appendLine(`[CreateImage] Warning: ${warning}`);
   }
 
   outputChannel.appendLine(`[CreateImage] Artifact: ${artifact}`);
