@@ -980,6 +980,42 @@ async function downloadContainerEventLog(appLabel: string, containerName: string
   );
 }
 
+/**
+ * Builds the effective artifact URL from an AL-Go artifact shorthand and country setting.
+ * If the artifact shorthand has an empty country segment, the country from settings is injected.
+ * If both specify a country and they differ, the artifact's country wins (warning returned).
+ * Segments are padded with trailing slashes to ensure the split always yields at least 5 parts,
+ * matching the same convention used in the backend (FunctionBase.ResolveArtifactAsync).
+ */
+function buildArtifactUrlFromSettings(
+  artifact: string,
+  country: string
+): { artifactUrl: string; note: string; warning?: string } {
+  if (!artifact) {
+    return { artifactUrl: `///${country}/latest`, note: ' (defaulted)' };
+  }
+  if (artifact.startsWith('https://')) {
+    return { artifactUrl: artifact, note: '' };
+  }
+  // Shorthand: storageAccount/type/version/country/select
+  const segments = `${artifact}/////`.split('/');
+  const artifactCountry = segments[3];
+  if (!artifactCountry) {
+    // No country in artifact shorthand: inject country from settings
+    const artifactUrl = [segments[0], segments[1], segments[2], country, segments[4]].join('/').replace(/\/+$/, '');
+    return { artifactUrl, note: ' (country injected from settings)' };
+  }
+  if (artifactCountry.toLowerCase() !== country.toLowerCase()) {
+    // Country mismatch: artifact country wins, but warn
+    return {
+      artifactUrl: artifact,
+      note: '',
+      warning: `Ambiguous country definition. Artifact setting specifies '${artifactCountry}' but country setting is '${country}'. The artifact setting determines the country.`
+    };
+  }
+  return { artifactUrl: artifact, note: '' };
+}
+
 async function createContainer(project?: string): Promise<void> {
   const session = await getGitHubSession();
   if (!session) { return; }
@@ -1028,28 +1064,9 @@ async function createContainer(project?: string): Promise<void> {
   outputChannel.appendLine(`  environmentName: ${options.environmentName || '(empty)'}`);
   outputChannel.appendLine(`  customSettings: ${options.customSettings || '(empty)'}`);
 
-  let artifactUrl: string;
-  let artifactNote = '';
-  if (!artifact) {
-    artifactUrl = `///${country}/latest`;
-    artifactNote = ' (defaulted)';
-  } else if (artifact.startsWith('https://')) {
-    artifactUrl = artifact;
-  } else {
-    // Shorthand: storageAccount/type/version/country/select
-    const segments = `${artifact}/////`.split('/');
-    const artifactCountry = segments[3];
-    if (!artifactCountry) {
-      // No country in artifact shorthand: inject country from settings
-      artifactUrl = [segments[0], segments[1], segments[2], country, segments[4]].join('/').replace(/\/+$/, '');
-      artifactNote = ' (country injected from settings)';
-    } else if (artifactCountry.toLowerCase() !== country.toLowerCase()) {
-      // Country mismatch: artifact country wins, but warn
-      outputChannel.appendLine(`  Warning: Ambiguous country definition. Artifact setting specifies '${artifactCountry}' but country setting is '${country}'. The artifact setting determines the country.`);
-      artifactUrl = artifact;
-    } else {
-      artifactUrl = artifact;
-    }
+  const { artifactUrl, note: artifactNote, warning: artifactWarning } = buildArtifactUrlFromSettings(artifact, country);
+  if (artifactWarning) {
+    outputChannel.appendLine(`  Warning: ${artifactWarning}`);
   }
 
   outputChannel.appendLine('--- Resolved Settings ---');
@@ -1108,20 +1125,9 @@ async function createImage(): Promise<void> {
   }
 
   // Build artifact URL, substituting country from settings if not specified in artifact shorthand
-  let artifactUrl: string;
-  if (artifact.startsWith('https://')) {
-    artifactUrl = artifact;
-  } else {
-    const segments = `${artifact}/////`.split('/');
-    const artifactCountry = segments[3];
-    if (!artifactCountry) {
-      artifactUrl = [segments[0], segments[1], segments[2], country, segments[4]].join('/').replace(/\/+$/, '');
-    } else if (artifactCountry.toLowerCase() !== country.toLowerCase()) {
-      outputChannel.appendLine(`[CreateImage] Warning: Ambiguous country definition. Artifact setting specifies '${artifactCountry}' but country setting is '${country}'. The artifact setting determines the country.`);
-      artifactUrl = artifact;
-    } else {
-      artifactUrl = artifact;
-    }
+  const { artifactUrl, warning } = buildArtifactUrlFromSettings(artifact, country);
+  if (warning) {
+    outputChannel.appendLine(`[CreateImage] Warning: ${warning}`);
   }
 
   outputChannel.appendLine(`[CreateImage] Artifact: ${artifactUrl}`);
