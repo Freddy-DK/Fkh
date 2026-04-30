@@ -477,6 +477,24 @@ function postProcessSettings(settings: Record<string, unknown>, project: string)
   if (!getString(settings, 'projectName')) {
     settings['projectName'] = project;
   }
+
+  // Resolve artifact country: if the artifact shorthand omits the country segment, inject it
+  // from the 'country' setting. If both specify a country and they differ, the artifact wins
+  // and a warning is stored for callers to surface.
+  const artifact = getString(settings, 'artifact');
+  const country = getString(settings, 'country');
+  if (artifact && !artifact.startsWith('https://') && country) {
+    // Shorthand format: storageAccount/type/version/country/select
+    // Pad with extra slashes so split always yields at least 5 parts
+    const segments = `${artifact}/////`.split('/');
+    const artifactCountry = segments[3];
+    if (!artifactCountry) {
+      settings['artifact'] = [segments[0], segments[1], segments[2], country, segments[4]].join('/').replace(/\/+$/, '');
+    } else if (artifactCountry.toLowerCase() !== country.toLowerCase()) {
+      settings['artifactCountryWarning'] =
+        `Ambiguous country definition. Artifact setting specifies '${artifactCountry}' but country setting is '${country}'. The artifact setting determines the country.`;
+    }
+  }
 }
 
 function getDefaultSettings(repoName: string): Record<string, unknown> {
