@@ -992,8 +992,9 @@ async function createContainer(project?: string): Promise<void> {
   }
 
   let settings: Record<string, unknown>;
+  let settingsWarnings: string[];
   try {
-    settings = await readSettings(options);
+    ({ settings, warnings: settingsWarnings } = await readSettings(options));
   } catch (err) {
     vscode.window.showErrorMessage(`Fkh: Failed to read AL-Go settings: ${err instanceof Error ? err.message : String(err)}`);
     return;
@@ -1028,9 +1029,8 @@ async function createContainer(project?: string): Promise<void> {
   outputChannel.appendLine(`  environmentName: ${options.environmentName || '(empty)'}`);
   outputChannel.appendLine(`  customSettings: ${options.customSettings || '(empty)'}`);
 
-  const artifactCountryWarning = String(settings['artifactCountryWarning'] ?? '');
-  if (artifactCountryWarning) {
-    outputChannel.appendLine(`  Warning: ${artifactCountryWarning}`);
+  for (const warning of settingsWarnings) {
+    outputChannel.appendLine(`  Warning: ${warning}`);
   }
 
   const artifactUrl = artifact || `///${country}/latest`;
@@ -1076,8 +1076,9 @@ async function createImage(): Promise<void> {
   }
 
   let settings: Record<string, unknown>;
+  let settingsWarnings: string[];
   try {
-    settings = await readSettings(options);
+    ({ settings, warnings: settingsWarnings } = await readSettings(options));
   } catch (err) {
     vscode.window.showErrorMessage(`Fkh: Failed to read AL-Go settings: ${err instanceof Error ? err.message : String(err)}`);
     return;
@@ -1089,9 +1090,8 @@ async function createImage(): Promise<void> {
     return;
   }
 
-  const artifactCountryWarning = String(settings['artifactCountryWarning'] ?? '');
-  if (artifactCountryWarning) {
-    outputChannel.appendLine(`[CreateImage] Warning: ${artifactCountryWarning}`);
+  for (const warning of settingsWarnings) {
+    outputChannel.appendLine(`[CreateImage] Warning: ${warning}`);
   }
 
   outputChannel.appendLine(`[CreateImage] Artifact: ${artifact}`);
