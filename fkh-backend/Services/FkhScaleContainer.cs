@@ -66,8 +66,8 @@ public class FkhScaleContainer : FkhServiceBase
         await EnsureWindowsNodeReadyAsync(client, useSpot);
         await CleanupPlaceholderPodAsync(client, useSpot);
 
-        // If an encryption key exists in blob storage, generate a SAS URL and inject it as an env var
-        await InjectEncryptionKeyFileEnvAsync(client, appName, deploymentName);
+        // Generate a fresh container blob SAS URL and inject it as an env var
+        await InjectContainerBlobContainerEnvAsync(client, appName, deploymentName);
 
         var result = await ScaleAsync(parameters, 1);
 
@@ -191,18 +191,18 @@ public class FkhScaleContainer : FkhServiceBase
         return new ScaleResult(appName, deploymentName, replicas);
     }
 
-    private async Task InjectEncryptionKeyFileEnvAsync(Kubernetes client, string appName, string deploymentName)
+    private async Task InjectContainerBlobContainerEnvAsync(Kubernetes client, string appName, string deploymentName)
     {
         try
         {
-            var sasUrl = await GenerateEncryptionKeySasUrlAsync(appName);
+            var sasUrl = await GenerateContainerBlobSasUrlAsync(appName);
 
-            // Patch the deployment to add/update the EncryptionKeyBlobSasUrl env var with a fresh SAS
+            // Patch the deployment to add/update the ContainerBlobContainer env var with a fresh SAS
             var deployment = await client.ReadNamespacedDeploymentAsync(deploymentName, Namespace);
             var container = deployment.Spec.Template.Spec.Containers[0];
             container.Env ??= new List<V1EnvVar>();
 
-            var existing = container.Env.FirstOrDefault(e => e.Name == "EncryptionKeyBlobSasUrl");
+            var existing = container.Env.FirstOrDefault(e => e.Name == "ContainerBlobContainer");
             if (existing != null)
             {
                 existing.Value = sasUrl;
@@ -210,15 +210,15 @@ public class FkhScaleContainer : FkhServiceBase
             }
             else
             {
-                container.Env.Add(new V1EnvVar { Name = "EncryptionKeyBlobSasUrl", Value = sasUrl });
+                container.Env.Add(new V1EnvVar { Name = "ContainerBlobContainer", Value = sasUrl });
             }
 
             await client.ReplaceNamespacedDeploymentAsync(deployment, deploymentName, Namespace);
-            Logger.LogInformation("Injected EncryptionKeyBlobSasUrl env var for container '{AppName}'.", appName);
+            Logger.LogInformation("Injected ContainerBlobContainer env var for container '{AppName}'.", appName);
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Failed to inject EncryptionKeyBlobSasUrl env var for container '{AppName}'.", appName);
+            Logger.LogWarning(ex, "Failed to inject ContainerBlobContainer env var for container '{AppName}'.", appName);
         }
     }
 }

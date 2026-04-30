@@ -62,6 +62,24 @@ finally {
 Write-Host "  Function app: $FunctionAppName" -ForegroundColor Gray
 Write-Host "  Resource group: $ResourceGroupName" -ForegroundColor Gray
 
+# ── Update FKH_REPO and FKH_REF app settings ─────────────────────────────────
+$remoteUrl = git -C $scriptDir remote get-url origin 2>$null
+if ($remoteUrl -match 'github\.com[:/]([^/]+/[^/.]+)') {
+    $fkhRepo = $Matches[1]
+} else {
+    $fkhRepo = "Freddy-DK/Fkh"
+}
+$fkhRef = git -C $scriptDir rev-parse --abbrev-ref HEAD 2>$null
+if ([string]::IsNullOrWhiteSpace($fkhRef)) { $fkhRef = "main" }
+
+Write-Host "  Updating app settings: FKH_REPO=$fkhRepo, FKH_REF=$fkhRef" -ForegroundColor Gray
+az functionapp config appsettings set `
+    --name $FunctionAppName `
+    --resource-group $ResourceGroupName `
+    --settings "FKH_REPO=$fkhRepo" "FKH_REF=$fkhRef" `
+    --output none
+if ($LASTEXITCODE -ne 0) { Write-Host "Warning: could not update FKH_REPO/FKH_REF app settings." -ForegroundColor Yellow }
+
 # ── Publish function code ────────────────────────────────────────────────────
 
 Write-Host ""

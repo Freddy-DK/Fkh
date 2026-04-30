@@ -36,11 +36,15 @@ public abstract class FkhServiceBase
 
     protected const string Namespace = "app";
     protected const string AcrRepository = "businesscentral";
-    protected const string FoldersValue = @"c:\run\my=https://github.com/Freddy-DK/ContainerScripts/archive/refs/heads/main.zip\ContainerScripts-main";
+    protected readonly string FoldersValue;
 
     protected FkhServiceBase(ILogger logger)
     {
         Logger = logger;
+        var fkhRepo = Environment.GetEnvironmentVariable("FKH_REPO") ?? "Freddy-DK/Fkh";
+        var fkhRef = Environment.GetEnvironmentVariable("FKH_REF") ?? "main";
+        var repoName = fkhRepo.Split('/')[1];
+        FoldersValue = $@"c:\run\my=https://github.com/{fkhRepo}/archive/refs/heads/{fkhRef}.zip\{repoName}-{fkhRef}\ContainerScripts";
         SubscriptionId = Environment.GetEnvironmentVariable("AKS_SUBSCRIPTION_ID")
             ?? throw new InvalidOperationException("AKS_SUBSCRIPTION_ID is not configured.");
         ResourceGroup = Environment.GetEnvironmentVariable("AKS_RESOURCE_GROUP")
@@ -368,13 +372,13 @@ public abstract class FkhServiceBase
         return new ExecResult(stdoutTask.Result, stderr);
     }
 
-    protected const string EncryptionKeysContainer = "encryptionkeys";
+    protected const string ContainerBlobContainerName = "containerfiles";
 
     /// <summary>
-    /// Generates a blob-level SAS URL for the encryption key with Read and Create permissions.
-    /// The container script uses this to check/download an existing key or upload a new one.
+    /// Generates a container-level SAS URL with Read, Create, and Write permissions.
+    /// The container script uses this to access blobs (e.g. encryption keys) within the container's folder.
     /// </summary>
-    protected async Task<string> GenerateEncryptionKeySasUrlAsync(string appName)
+    protected async Task<string> GenerateContainerBlobSasUrlAsync(string appName)
     {
 #pragma warning disable CS0618
         var credential = new ManagedIdentityCredential(ClientId);
@@ -382,24 +386,22 @@ public abstract class FkhServiceBase
         var blobServiceClient = new BlobServiceClient(
             new Uri($"https://{DbsStorageAccountName}.blob.core.windows.net"), credential);
 
-        var blobContainerClient = blobServiceClient.GetBlobContainerClient(EncryptionKeysContainer);
+        var blobContainerClient = blobServiceClient.GetBlobContainerClient(ContainerBlobContainerName);
         await blobContainerClient.CreateIfNotExistsAsync();
-
-        var blobClient = blobContainerClient.GetBlobClient($"{appName}/DynamicsNAV.key");
 
         var delegationKey = await blobServiceClient.GetUserDelegationKeyAsync(
             DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(24));
 
         var sasBuilder = new BlobSasBuilder
         {
-            BlobContainerName = EncryptionKeysContainer,
-            BlobName = $"{appName}/DynamicsNAV.key",
-            Resource = "b",
+            BlobContainerName = ContainerBlobContainerName,
+            Resource = "c",
             ExpiresOn = DateTimeOffset.UtcNow.AddHours(24)
         };
-        sasBuilder.SetPermissions(BlobSasPermissions.Read | BlobSasPermissions.Create);
+        sasBuilder.SetPermissions(BlobSasPermissions.Read | BlobSasPermissions.Create | BlobSasPermissions.Write);
 
-        var blobUriBuilder = new BlobUriBuilder(blobClient.Uri)
+        var containerUri = blobContainerClient.Uri;
+        var blobUriBuilder = new BlobUriBuilder(containerUri)
         {
             Sas = sasBuilder.ToSasQueryParameters(delegationKey, blobServiceClient.AccountName)
         };

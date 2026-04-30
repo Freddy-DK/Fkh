@@ -265,6 +265,21 @@ if ([string]::IsNullOrWhiteSpace($env:TF_VAR_github_app_private_key)) {
     Write-Host "TF_VAR_github_app_private_key has been set from $pemPath." -ForegroundColor Green
 }
 
+# ── Detect Fkh repo and branch from git ──────────────────────────────────────
+if ([string]::IsNullOrWhiteSpace($env:TF_VAR_fkh_repo)) {
+    $remoteUrl = git -C $scriptDir remote get-url origin 2>$null
+    if ($remoteUrl -match 'github\.com[:/]([^/]+/[^/.]+)') {
+        $env:TF_VAR_fkh_repo = $Matches[1]
+    } else {
+        $env:TF_VAR_fkh_repo = "Freddy-DK/Fkh"
+    }
+}
+if ([string]::IsNullOrWhiteSpace($env:TF_VAR_fkh_ref)) {
+    $env:TF_VAR_fkh_ref = git -C $scriptDir rev-parse --abbrev-ref HEAD 2>$null
+    if ([string]::IsNullOrWhiteSpace($env:TF_VAR_fkh_ref)) { $env:TF_VAR_fkh_ref = "main" }
+}
+Write-Host "FKH_REPO=$($env:TF_VAR_fkh_repo), FKH_REF=$($env:TF_VAR_fkh_ref)" -ForegroundColor Gray
+
 # ── Step 2: Bootstrap Azure infrastructure ────────────────────────────────────
 # The Kubernetes provider depends on AKS kubeconfig values. On a fresh deploy
 # AKS doesn't exist yet, so we must create it first with a targeted apply

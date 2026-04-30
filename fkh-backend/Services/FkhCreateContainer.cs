@@ -579,7 +579,7 @@ public class FkhCreateContainer : FkhServiceBase
                                 {
                                     new() { ContainerPort = 80 }, new() { ContainerPort = 443 }, new() { ContainerPort = 7047 }, new() { ContainerPort = 7048 }, new() { ContainerPort = 7049 },
                                 },
-                                Env = BuildEnvVars(adminUsername, secretName, publicDnsName, databaseName, multitenant, authenticationEmail, aadAppClientId, aadAuthIsMultitenant, await GenerateEncryptionKeySasUrlAsync(appName)),
+                                Env = BuildEnvVars(adminUsername, secretName, publicDnsName, databaseName, multitenant, authenticationEmail, aadAppClientId, aadAuthIsMultitenant, await GenerateContainerBlobSasUrlAsync(appName)),
                                 Resources = new V1ResourceRequirements
                                 {
                                     Requests = new Dictionary<string, ResourceQuantity>
@@ -635,7 +635,7 @@ public class FkhCreateContainer : FkhServiceBase
                     SecretKeyRef = new V1SecretKeySelector { Name = "encryption-secret", Key = "encryptionPassword" }
                 }
             },
-            new() { Name = "EncryptionKeyBlobSasUrl", Value = encryptionKeyBlobSasUrl },
+            new() { Name = "ContainerBlobContainer", Value = encryptionKeyBlobSasUrl },
         };
 
         if (multitenant)

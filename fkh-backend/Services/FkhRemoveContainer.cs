@@ -53,8 +53,8 @@ public class FkhRemoveContainer : FkhServiceBase
             results.Add(await TryDeleteAadAppRegistrationAsync(aadAppObjectId));
         }
 
-        // Delete the encryption key blob from storage
-        results.Add(await TryDeleteEncryptionKeyAsync(appName));
+        // Delete all blobs for this container from storage
+        results.Add(await TryDeleteContainerBlobsAsync(appName));
 
         Logger.LogInformation("Container '{AppName}' removal complete.", appName);
         return new { Container = appName, Results = results };
@@ -115,7 +115,7 @@ public class FkhRemoveContainer : FkhServiceBase
         }
     }
 
-    private async Task<string> TryDeleteEncryptionKeyAsync(string appName)
+    private async Task<string> TryDeleteContainerBlobsAsync(string appName)
     {
         try
         {
@@ -125,16 +125,19 @@ public class FkhRemoveContainer : FkhServiceBase
             var blobServiceClient = new BlobServiceClient(
                 new Uri($"https://{DbsStorageAccountName}.blob.core.windows.net"), credential);
 
-            var blobContainerClient = blobServiceClient.GetBlobContainerClient("encryptionkeys");
-            var blobClient = blobContainerClient.GetBlobClient($"{appName}/DynamicsNAV.key");
-
-            var response = await blobClient.DeleteIfExistsAsync();
-            return response.Value ? "Encryption key deleted" : "Encryption key not found (skipped)";
+            var blobContainerClient = blobServiceClient.GetBlobContainerClient(ContainerBlobContainerName);
+            var deleted = 0;
+            await foreach (var blob in blobContainerClient.GetBlobsAsync(prefix: $"{appName}/"))
+            {
+                await blobContainerClient.DeleteBlobAsync(blob.Name);
+                deleted++;
+            }
+            return deleted > 0 ? $"Container blobs deleted ({deleted})" : "No container blobs found (skipped)";
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Failed to delete encryption key for container '{AppName}'", appName);
-            return $"Encryption key deletion failed: {ex.Message}";
+            Logger.LogWarning(ex, "Failed to delete container blobs for '{AppName}'", appName);
+            return $"Container blobs deletion failed: {ex.Message}";
         }
     }
 }
