@@ -1,4 +1,5 @@
 using Azure.Identity;
+using Azure.Storage.Blobs;
 using k8s;
 using Microsoft.Extensions.Logging;
 using Microsoft.Graph;
@@ -51,6 +52,9 @@ public class FkhRemoveContainer : FkhServiceBase
         {
             results.Add(await TryDeleteAadAppRegistrationAsync(aadAppObjectId));
         }
+
+        // Delete the encryption key blob from storage
+        results.Add(await TryDeleteEncryptionKeyAsync(appName));
 
         Logger.LogInformation("Container '{AppName}' removal complete.", appName);
         return new { Container = appName, Results = results };
@@ -108,6 +112,29 @@ public class FkhRemoveContainer : FkhServiceBase
         {
             Logger.LogWarning(ex, "Failed to delete AAD App Registration '{ObjectId}'", objectId);
             return $"AAD App Registration deletion failed: {ex.Message}";
+        }
+    }
+
+    private async Task<string> TryDeleteEncryptionKeyAsync(string appName)
+    {
+        try
+        {
+#pragma warning disable CS0618
+            var credential = new ManagedIdentityCredential(ClientId);
+#pragma warning restore CS0618
+            var blobServiceClient = new BlobServiceClient(
+                new Uri($"https://{DbsStorageAccountName}.blob.core.windows.net"), credential);
+
+            var blobContainerClient = blobServiceClient.GetBlobContainerClient("encryptionkeys");
+            var blobClient = blobContainerClient.GetBlobClient($"{appName}/DynamicsNAV.key");
+
+            var response = await blobClient.DeleteIfExistsAsync();
+            return response.Value ? "Encryption key deleted" : "Encryption key not found (skipped)";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to delete encryption key for container '{AppName}'", appName);
+            return $"Encryption key deletion failed: {ex.Message}";
         }
     }
 }

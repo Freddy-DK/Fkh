@@ -1,4 +1,6 @@
 using Azure.Core;
+using Azure.Storage.Blobs;
+using Azure.Storage.Sas;
 using Azure.Identity;
 using Azure.ResourceManager;
 using Azure.ResourceManager.ContainerService;
@@ -364,6 +366,44 @@ public abstract class FkhServiceBase
         }
 
         return new ExecResult(stdoutTask.Result, stderr);
+    }
+
+    protected const string EncryptionKeysContainer = "encryptionkeys";
+
+    /// <summary>
+    /// Generates a blob-level SAS URL for the encryption key with Read and Create permissions.
+    /// The container script uses this to check/download an existing key or upload a new one.
+    /// </summary>
+    protected async Task<string> GenerateEncryptionKeySasUrlAsync(string appName)
+    {
+#pragma warning disable CS0618
+        var credential = new ManagedIdentityCredential(ClientId);
+#pragma warning restore CS0618
+        var blobServiceClient = new BlobServiceClient(
+            new Uri($"https://{DbsStorageAccountName}.blob.core.windows.net"), credential);
+
+        var blobContainerClient = blobServiceClient.GetBlobContainerClient(EncryptionKeysContainer);
+        await blobContainerClient.CreateIfNotExistsAsync();
+
+        var blobClient = blobContainerClient.GetBlobClient($"{appName}/DynamicsNAV.key");
+
+        var delegationKey = await blobServiceClient.GetUserDelegationKeyAsync(
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(24));
+
+        var sasBuilder = new BlobSasBuilder
+        {
+            BlobContainerName = EncryptionKeysContainer,
+            BlobName = $"{appName}/DynamicsNAV.key",
+            Resource = "b",
+            ExpiresOn = DateTimeOffset.UtcNow.AddHours(24)
+        };
+        sasBuilder.SetPermissions(BlobSasPermissions.Read | BlobSasPermissions.Create);
+
+        var blobUriBuilder = new BlobUriBuilder(blobClient.Uri)
+        {
+            Sas = sasBuilder.ToSasQueryParameters(delegationKey, blobServiceClient.AccountName)
+        };
+        return blobUriBuilder.ToUri().ToString();
     }
 
     protected const string AutoStopAnnotation = "fkh/auto-stop-at";

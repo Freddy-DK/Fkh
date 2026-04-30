@@ -101,6 +101,7 @@ public class FkhWaitForContainer : FkhServiceBase
             }
         }
 
+        // Pod is ready
         return new
         {
             Name = name,

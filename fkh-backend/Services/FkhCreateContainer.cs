@@ -579,7 +579,7 @@ public class FkhCreateContainer : FkhServiceBase
                                 {
                                     new() { ContainerPort = 80 }, new() { ContainerPort = 443 }, new() { ContainerPort = 7047 }, new() { ContainerPort = 7048 }, new() { ContainerPort = 7049 },
                                 },
-                                Env = BuildEnvVars(adminUsername, secretName, publicDnsName, databaseName, multitenant, authenticationEmail, aadAppClientId, aadAuthIsMultitenant),
+                                Env = BuildEnvVars(adminUsername, secretName, publicDnsName, databaseName, multitenant, authenticationEmail, aadAppClientId, aadAuthIsMultitenant, await GenerateEncryptionKeySasUrlAsync(appName)),
                                 Resources = new V1ResourceRequirements
                                 {
                                     Requests = new Dictionary<string, ResourceQuantity>
@@ -598,7 +598,7 @@ public class FkhCreateContainer : FkhServiceBase
         await client.CreateNamespacedDeploymentAsync(deployment, Namespace);
     }
 
-    private List<V1EnvVar> BuildEnvVars(string adminUsername, string secretName, string publicDnsName, string databaseName, bool multitenant, string? authenticationEmail, string? aadAppClientId, bool aadAuthIsMultitenant)
+    private List<V1EnvVar> BuildEnvVars(string adminUsername, string secretName, string publicDnsName, string databaseName, bool multitenant, string? authenticationEmail, string? aadAppClientId, bool aadAuthIsMultitenant, string encryptionKeyBlobSasUrl)
     {
         var envVars = new List<V1EnvVar>
         {
@@ -635,6 +635,7 @@ public class FkhCreateContainer : FkhServiceBase
                     SecretKeyRef = new V1SecretKeySelector { Name = "encryption-secret", Key = "encryptionPassword" }
                 }
             },
+            new() { Name = "EncryptionKeyBlobSasUrl", Value = encryptionKeyBlobSasUrl },
         };
 
         if (multitenant)
