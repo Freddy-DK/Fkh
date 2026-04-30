@@ -137,7 +137,24 @@ jobs:
 
       - name: Login to ACR
         shell: pwsh
-        run: az acr login --name $env:ACR_LOGIN_SERVER
+        run: |
+          $ErrorActionPreference = "Stop"
+          $maxAttempts = 12
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            docker version *> $null
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "Docker daemon is ready."
+              az acr login --name $env:ACR_LOGIN_SERVER
+              exit $LASTEXITCODE
+            }
+
+            Write-Host "Docker daemon is not ready yet (attempt $attempt/$maxAttempts). Waiting 10 seconds..."
+            Start-Sleep -Seconds 10
+          }
+
+          Write-Host "Docker daemon did not become ready before ACR login. Last docker version output:"
+          docker version
+          throw "Docker daemon did not become ready before ACR login"
 
       - name: Upload database backup
         shell: pwsh
