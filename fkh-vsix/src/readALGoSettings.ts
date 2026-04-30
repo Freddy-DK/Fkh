@@ -105,7 +105,7 @@ export async function getProjects(): Promise<string[]> {
 
   const projects: string[] = [];
   for (const project of candidates) {
-    const { settings } = await readSettings({
+    const settings = await readSettings({
       baseFolder: gitRoot,
       repoName,
       project,
