@@ -4,9 +4,9 @@
 # Publishes Azure Function code changes without running Terraform.
 # Calls the reusable UpdateFkhBackEnd workflow in your Fkh fork.
 #
-# ── Optional Inputs ─────────────────────────────────────────────────────────
-#   fkh-repo    - Owner/name of the Fkh fork (e.g. Freddy-DK/Fkh) (default: Freddy-DK/Fkh)
-#   fkh-ref     - Git ref to checkout from the Fkh fork (e.g. main, a branch name, a tag or a commit SHA) (default: main)
+# The fkh-repo and fkh-ref values below are kept in sync with the uses: line.
+# Use the CLI commands CreateDeploymentRepo / UpdateDeploymentRepo to change
+# the target fork and branch — they update all three values together.
 #
 # ── Required GitHub Secrets ─────────────────────────────────────────────────
 #   (none)
@@ -27,3 +27,6 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    with:
+      fkh-repo: Freddy-DK/Fkh
+      fkh-ref: main

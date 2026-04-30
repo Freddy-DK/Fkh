@@ -128,6 +128,7 @@ sealed class UpdateDeploymentRepoCommand : ClientCommand
                 {
                     content = content.Replace("Freddy-DK/Fkh", fkhRepo);
                     content = content.Replace("@main", $"@{fkhBranch}");
+                    content = content.Replace("fkh-ref: main", $"fkh-ref: {fkhBranch}");
                 }
 
                 var targetPath = Path.Combine(tempDir, relativePath.Replace('/', Path.DirectorySeparatorChar));

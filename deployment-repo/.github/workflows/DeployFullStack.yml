@@ -5,9 +5,9 @@
 # It passes your deployment.tfvars (from this repo) and secrets to the
 # reusable workflow, which handles all Terraform and function publishing.
 #
-# ── Optional Inputs ─────────────────────────────────────────────────────────
-#   fkh-repo    - Owner/name of the Fkh fork (e.g. Freddy-DK/Fkh) (default: Freddy-DK/Fkh)
-#   fkh-ref     - Git ref to checkout from the Fkh fork (e.g. main, a branch name, a tag or a commit SHA) (default: main)
+# The fkh-repo and fkh-ref values below are kept in sync with the uses: line.
+# Use the CLI commands CreateDeploymentRepo / UpdateDeploymentRepo to change
+# the target fork and branch — they update all three values together.
 #
 # ── Required GitHub Secrets ─────────────────────────────────────────────────
 #   SQL_SA_PASSWORD                - SA password for the SQL Server in AKS
@@ -29,6 +29,9 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    with:
+      fkh-repo: Freddy-DK/Fkh
+      fkh-ref: main
     secrets:
       SQL_SA_PASSWORD: ${{ secrets.SQL_SA_PASSWORD }}
       GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
