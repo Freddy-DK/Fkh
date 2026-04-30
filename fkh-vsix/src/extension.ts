@@ -1028,11 +1028,33 @@ async function createContainer(project?: string): Promise<void> {
   outputChannel.appendLine(`  environmentName: ${options.environmentName || '(empty)'}`);
   outputChannel.appendLine(`  customSettings: ${options.customSettings || '(empty)'}`);
 
-  const artifactUrl = artifact || `///${country}/latest`;
+  let artifactUrl: string;
+  let artifactNote = '';
+  if (!artifact) {
+    artifactUrl = `///${country}/latest`;
+    artifactNote = ' (defaulted)';
+  } else if (artifact.startsWith('https://')) {
+    artifactUrl = artifact;
+  } else {
+    // Shorthand: storageAccount/type/version/country/select
+    const segments = `${artifact}/////`.split('/');
+    const artifactCountry = segments[3];
+    if (!artifactCountry) {
+      // No country in artifact shorthand: inject country from settings
+      artifactUrl = [segments[0], segments[1], segments[2], country, segments[4]].join('/').replace(/\/+$/, '');
+      artifactNote = ' (country injected from settings)';
+    } else if (artifactCountry.toLowerCase() !== country.toLowerCase()) {
+      // Country mismatch: artifact country wins, but warn
+      outputChannel.appendLine(`  Warning: Ambiguous country definition. Artifact setting specifies '${artifactCountry}' but country setting is '${country}'. The artifact setting determines the country.`);
+      artifactUrl = artifact;
+    } else {
+      artifactUrl = artifact;
+    }
+  }
 
   outputChannel.appendLine('--- Resolved Settings ---');
   outputChannel.appendLine(`  Country: ${country}`);
-  outputChannel.appendLine(`  Artifact: ${artifactUrl}${!artifact ? ' (defaulted)' : ''}`);
+  outputChannel.appendLine(`  Artifact: ${artifactUrl}${artifactNote}`);
   if (Object.keys(prefilled).length > 0) {
     outputChannel.appendLine('  Fkh overrides from AL-Go settings:');
     for (const [key, value] of Object.entries(prefilled)) {
@@ -1079,15 +1101,33 @@ async function createImage(): Promise<void> {
   }
 
   const artifact = String(settings['artifact'] ?? '');
+  const country = String(settings['country'] ?? 'us');
   if (!artifact) {
     vscode.window.showWarningMessage('Fkh: No artifact setting found in AL-Go settings.');
     return;
   }
 
-  outputChannel.appendLine(`[CreateImage] Artifact: ${artifact}`);
+  // Build artifact URL, substituting country from settings if not specified in artifact shorthand
+  let artifactUrl: string;
+  if (artifact.startsWith('https://')) {
+    artifactUrl = artifact;
+  } else {
+    const segments = `${artifact}/////`.split('/');
+    const artifactCountry = segments[3];
+    if (!artifactCountry) {
+      artifactUrl = [segments[0], segments[1], segments[2], country, segments[4]].join('/').replace(/\/+$/, '');
+    } else if (artifactCountry.toLowerCase() !== country.toLowerCase()) {
+      outputChannel.appendLine(`[CreateImage] Warning: Ambiguous country definition. Artifact setting specifies '${artifactCountry}' but country setting is '${country}'. The artifact setting determines the country.`);
+      artifactUrl = artifact;
+    } else {
+      artifactUrl = artifact;
+    }
+  }
+
+  outputChannel.appendLine(`[CreateImage] Artifact: ${artifactUrl}`);
   outputChannel.show(true);
 
-  await invokeFunctionByName('CreateImage', { artifactUrl: artifact });
+  await invokeFunctionByName('CreateImage', { artifactUrl: artifactUrl });
 }
 
 export function deactivate() {
