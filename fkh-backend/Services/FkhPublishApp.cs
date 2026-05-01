@@ -12,17 +12,32 @@ public class FkhPublishApp : FkhServiceBase
         var githubUsername = parameters["_githubUsername"];
         var appName = ResolveAppName(parameters);
         var syncMode = parameters.TryGetValue("syncMode", out var sm) ? sm : "Add";
+        var devScopeParam = parameters.TryGetValue("devScope", out var ds)
+            && string.Equals(ds, "true", StringComparison.OrdinalIgnoreCase);
 
         if (!files.TryGetValue("appFile", out var appFileBytes) || appFileBytes.Length == 0)
         {
             throw new InvalidOperationException("No app file was uploaded.");
         }
 
-        Logger.LogInformation(
-            "User '{User}' publishing app to container '{Container}' ({Size} bytes, syncMode={SyncMode}).",
-            githubUsername, appName, appFileBytes.Length, syncMode);
-
         var client = await GetKubernetesClientAsync();
+
+        // Check deployment annotation for dev-scope (set when container was created with moveAllAppsToDevScope)
+        var useDevScope = devScopeParam;
+        if (!useDevScope)
+        {
+            try
+            {
+                var deployment = await client.ReadNamespacedDeploymentAsync(appName, Namespace);
+                useDevScope = deployment.Metadata?.Annotations?.TryGetValue("fkh/dev-scope", out var devScopeAnnotation) == true
+                    && string.Equals(devScopeAnnotation, "true", StringComparison.OrdinalIgnoreCase);
+            }
+            catch { /* deployment not found — proceed without dev scope */ }
+        }
+
+        Logger.LogInformation(
+            "User '{User}' publishing app to container '{Container}' ({Size} bytes, syncMode={SyncMode}, devScope={DevScope}).",
+            githubUsername, appName, appFileBytes.Length, syncMode, useDevScope);
 
         // Find the BC pod for this container
         var pods = await client.ListNamespacedPodAsync(Namespace, labelSelector: $"app={appName}");
@@ -38,9 +53,64 @@ public class FkhPublishApp : FkhServiceBase
         Logger.LogInformation("Copying app file to pod '{Pod}' at {Dest}\\{File}...", podName, destPath, fileName);
         await CopyFileToPodAsync(client, podName, containerName, appFileBytes, destPath, fileName);
 
-        // Run Publish-NAVApp, Sync-NAVApp, Install-NAVApp inside the pod
-        Logger.LogInformation("Publishing app in container '{Container}'...", appName);
-        var script = $@"
+        // Run publish inside the pod — either via dev endpoint or Publish-NAVApp
+        Logger.LogInformation("Publishing app in container '{Container}' (devScope={DevScope})...", appName, useDevScope);
+
+        string script;
+        if (useDevScope)
+        {
+            // Dev endpoint publish (like VS Code does) — posts to the BC dev services endpoint
+            var schemaUpdateMode = syncMode switch
+            {
+                "Clean" => "recreate",
+                "ForceSync" => "forcesync",
+                _ => "synchronize"
+            };
+            script = $@"
+$ErrorActionPreference = 'Stop'
+$appPath = '{destPath}\{fileName}'
+$tenant = 'default'
+try {{
+    $customConfig = Get-Content 'c:\run\ServiceSettings.json' | ConvertFrom-Json
+    $devPort = $customConfig.DeveloperServicesPort
+    if (-not $devPort) {{ $devPort = '7049' }}
+    $serverInstance = $customConfig.ServerInstance
+    if (-not $serverInstance) {{ $serverInstance = 'BC' }}
+    $url = ""http://localhost:$devPort/$serverInstance/dev/apps?SchemaUpdateMode={schemaUpdateMode}&tenant=$tenant""
+    Write-Host ""Publishing to dev endpoint: $url""
+    $appBytes = [System.IO.File]::ReadAllBytes($appPath)
+    $appName = [System.IO.Path]::GetFileName($appPath)
+    Add-Type -AssemblyName System.Net.Http
+    $handler = New-Object System.Net.Http.HttpClientHandler
+    $httpClient = [System.Net.Http.HttpClient]::new($handler)
+    $httpClient.Timeout = [System.Threading.Timeout]::InfiniteTimeSpan
+    $multipartContent = [System.Net.Http.MultipartFormDataContent]::new()
+    $fileContent = [System.Net.Http.ByteArrayContent]::new($appBytes)
+    $fileHeader = [System.Net.Http.Headers.ContentDispositionHeaderValue]::new('form-data')
+    $fileHeader.Name = $appName
+    $fileHeader.FileName = $appName
+    $fileContent.Headers.ContentDisposition = $fileHeader
+    $multipartContent.Add($fileContent)
+    $result = $httpClient.PostAsync($url, $multipartContent).GetAwaiter().GetResult()
+    if (-not $result.IsSuccessStatusCode) {{
+        $msg = $result.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        throw ""Dev endpoint publish failed ($($result.StatusCode)): $msg""
+    }}
+    Write-Host ""App published successfully via dev endpoint.""
+    . 'c:\run\prompt.ps1'
+    $appInfo = Get-NAVAppInfo -Path $appPath
+    $appInfo | Select-Object Name, Publisher, Version | ConvertTo-Json
+}} catch {{
+    Write-Error ""Failed to publish app: $_""
+    exit 1
+}} finally {{
+    Remove-Item -Path $appPath -Force -ErrorAction SilentlyContinue
+}}
+";
+        }
+        else
+        {
+            script = $@"
 $ErrorActionPreference = 'Stop'
 . 'c:\run\prompt.ps1'  # Load BC admin tools into the session
 $appPath = '{destPath}\{fileName}'
@@ -67,6 +137,7 @@ try {{
     Remove-Item -Path $appPath -Force -ErrorAction SilentlyContinue
 }}
 ";
+        }
 
         var result = await ExecInBcPodAsync(client, podName, containerName, script);
 

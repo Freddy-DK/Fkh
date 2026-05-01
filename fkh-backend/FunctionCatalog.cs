@@ -531,6 +531,14 @@ public static class FunctionCatalog
                     Description = "Sync mode for the app (Add, ForceSync, Clean, Development).",
                     Required = false,
                     DefaultValue = "Add"
+                },
+                new()
+                {
+                    Name = "devScope",
+                    Type = "boolean",
+                    Description = "Publish the app to the dev scope using the dev endpoint (like VS Code does). Automatically enabled when the container was created with moveAllAppsToDevScope.",
+                    Required = false,
+                    DefaultValue = null
                 }
             }
         },
