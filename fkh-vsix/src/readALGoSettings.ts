@@ -48,7 +48,25 @@ function getGitAPI(): GitExtensionAPI | undefined {
 function getGitRepository(): GitRepository | undefined {
   const git = getGitAPI();
   if (!git || git.repositories.length === 0) { return undefined; }
-  return git.repositories[0];
+  if (git.repositories.length === 1) { return git.repositories[0]; }
+
+  // When multiple repositories are registered (e.g. root repo + submodules),
+  // pick the outermost (root) repository. We look for repositories that are
+  // ancestors of (or equal to) the first workspace folder, then pick the one
+  // with the shortest path to avoid accidentally using a submodule.
+  // Note: vscode.Uri.path always uses forward slashes on all platforms,
+  // so string-based path comparisons are safe here.
+  const workspaceFolderPath = vscode.workspace.workspaceFolders?.[0]?.uri.path ?? '';
+  const isAncestorOrEqual = (repoPath: string, targetPath: string): boolean =>
+    targetPath === repoPath || targetPath.startsWith(repoPath + '/');
+
+  const candidates = workspaceFolderPath
+    ? git.repositories.filter(r => isAncestorOrEqual(r.rootUri.path, workspaceFolderPath))
+    : [];
+  // Fall back to all repositories if none matched the workspace folder.
+  // git.repositories is non-empty at this point (checked above), so reduce is safe.
+  const pool = candidates.length > 0 ? candidates : git.repositories;
+  return pool.reduce((best, r) => r.rootUri.path.length < best.rootUri.path.length ? r : best);
 }
 
 export function getGitRootUri(): vscode.Uri | undefined {
