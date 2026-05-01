@@ -353,27 +353,37 @@ public abstract class FunctionBase
 
     private static string? ExtractHeaderValue(string headers, string key)
     {
-        // Look for: name="value" or name=value (unquoted, as sent by .NET MultipartFormDataContent)
+        // Look for: key="value" (quoted)
         var searchKeyQuoted = key + "=\"";
-        var idx = headers.IndexOf(searchKeyQuoted, StringComparison.OrdinalIgnoreCase);
-        if (idx >= 0)
+        var idx = 0;
+        while ((idx = headers.IndexOf(searchKeyQuoted, idx, StringComparison.OrdinalIgnoreCase)) >= 0)
         {
-            var start = idx + searchKeyQuoted.Length;
-            var end = headers.IndexOf('"', start);
-            if (end >= 0) return headers[start..end];
+            // Ensure we matched the full key, not a suffix (e.g. "filename=" when searching for "name=")
+            if (idx == 0 || headers[idx - 1] == ' ' || headers[idx - 1] == ';')
+            {
+                var start = idx + searchKeyQuoted.Length;
+                var end = headers.IndexOf('"', start);
+                if (end >= 0) return headers[start..end];
+            }
+            idx += searchKeyQuoted.Length;
         }
 
-        // Try unquoted: name=value (terminated by ; or end of line)
+        // Try unquoted: key=value (terminated by ; or end of line)
         var searchKeyUnquoted = key + "=";
-        idx = headers.IndexOf(searchKeyUnquoted, StringComparison.OrdinalIgnoreCase);
-        if (idx < 0) return null;
-        // Make sure we're not matching a longer key (e.g. "filename=" when looking for "name=")
-        if (idx > 0 && headers[idx - 1] != ' ' && headers[idx - 1] != ';')
-            return null;
-        var valStart = idx + searchKeyUnquoted.Length;
-        var valEnd = headers.IndexOfAny([';', '\r', '\n'], valStart);
-        var result = valEnd < 0 ? headers[valStart..] : headers[valStart..valEnd];
-        return result.Trim();
+        idx = 0;
+        while ((idx = headers.IndexOf(searchKeyUnquoted, idx, StringComparison.OrdinalIgnoreCase)) >= 0)
+        {
+            if (idx == 0 || headers[idx - 1] == ' ' || headers[idx - 1] == ';')
+            {
+                var valStart = idx + searchKeyUnquoted.Length;
+                var valEnd = headers.IndexOfAny([';', '\r', '\n'], valStart);
+                var result = valEnd < 0 ? headers[valStart..] : headers[valStart..valEnd];
+                return result.Trim();
+            }
+            idx += searchKeyUnquoted.Length;
+        }
+
+        return null;
     }
 
     /// <summary>
