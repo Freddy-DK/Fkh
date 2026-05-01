@@ -25,9 +25,8 @@ $certificateFromBlob = $false
 
 # Try to download existing certificate from blob storage
 if ($containerSasUrl -and $encryptionPassword) {
-    $appName = $env:publicDnsName.Split('.')[0]
     $uri = [System.Uri]$containerSasUrl
-    $blobUrl = "$($uri.Scheme)://$($uri.Host)$($uri.AbsolutePath)/$appName/certificate.pfx$($uri.Query)"
+    $blobUrl = "$($uri.Scheme)://$($uri.Host)$($uri.AbsolutePath)/certificate.pfx$($uri.Query)"
     Write-Host "Checking for existing certificate in blob storage..."
     try {
         Invoke-WebRequest -Uri $blobUrl -Method Get -OutFile $certificatePfxFile -UseBasicParsing -ErrorAction Stop
@@ -227,9 +226,8 @@ catch {
 
 # Upload certificate to blob storage if containerSasUrl is set
 if ($containerSasUrl -and (Test-Path $certificatePfxFile)) {
-    $appName = $env:publicDnsName.Split('.')[0]
     $uri = [System.Uri]$containerSasUrl
-    $blobUrl = "$($uri.Scheme)://$($uri.Host)$($uri.AbsolutePath)/$appName/certificate.pfx$($uri.Query)"
+    $blobUrl = "$($uri.Scheme)://$($uri.Host)$($uri.AbsolutePath)/certificate.pfx$($uri.Query)"
     Write-Host "Uploading certificate to blob storage..."
     try {
         $bytes = [System.IO.File]::ReadAllBytes($certificatePfxFile)

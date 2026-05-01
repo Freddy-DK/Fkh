@@ -7,9 +7,8 @@ if ("$env:licensefile" -eq "") {
 Write-Host "Checking for encryption key in blob storage..."
 $containerSasUrl = $env:ContainerBlobContainer
 if ($containerSasUrl) {
-    $appName = $env:publicDnsName.Split('.')[0]
     $uri = [System.Uri]$containerSasUrl
-    $blobUrl = "$($uri.Scheme)://$($uri.Host)$($uri.AbsolutePath)/$appName/DynamicsNAV.key$($uri.Query)"
+    $blobUrl = "$($uri.Scheme)://$($uri.Host)$($uri.AbsolutePath)/DynamicsNAV.key$($uri.Query)"
     Write-Host "ContainerBlobContainer is set. Attempting to download encryption key from blob storage..."
     $targetPath = 'c:\run\my\DynamicsNAV.key'
     try {

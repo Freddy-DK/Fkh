@@ -5,9 +5,8 @@
 Write-Host "Check for encryption key"
 $containerSasUrl = $env:ContainerBlobContainer
 if ($containerSasUrl) {
-    $appName = $env:publicDnsName.Split('.')[0]
     $uri = [System.Uri]$containerSasUrl
-    $blobUrl = "$($uri.Scheme)://$($uri.Host)$($uri.AbsolutePath)/$appName/DynamicsNAV.key$($uri.Query)"
+    $blobUrl = "$($uri.Scheme)://$($uri.Host)$($uri.AbsolutePath)/DynamicsNAV.key$($uri.Query)"
     Write-Host "ContainerBlobContainer is set. Checking for existing key in blob storage..."
     $keyPath = 'c:\run\my\DynamicsNAV.key'
     if (Test-Path $keyPath) {
