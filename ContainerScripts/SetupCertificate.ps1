@@ -24,6 +24,7 @@ $certificatePfxFile = Join-Path $myPath "certificate.pfx"
 $certificateFromBlob = $false
 
 # Try to download existing certificate from blob storage
+Write-Host "ContainerBlobContainer='$containerSasUrl' encryptionPassword='$(if($encryptionPassword){'(set)'}else{'(empty)'})'"
 if ($containerSasUrl -and $encryptionPassword) {
     $uri = [System.Uri]$containerSasUrl
     $blobUrl = "$($uri.Scheme)://$($uri.Host)$($uri.AbsolutePath)/certificate.pfx$($uri.Query)"
