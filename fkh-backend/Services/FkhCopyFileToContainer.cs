@@ -54,7 +54,7 @@ public class FkhCopyFileToContainer : FkhServiceBase
 
         var psCommand = $@"
 if (-not (Test-Path '{destDir}')) {{ New-Item -ItemType Directory -Path '{destDir}' -Force | Out-Null }}
-$b64 = [Console]::In.ReadToEnd()
+$b64 = [Console]::In.ReadLine()
 [System.IO.File]::WriteAllBytes('{destPath}', [System.Convert]::FromBase64String($b64))
 Write-Host 'COPY_OK'
 ";
@@ -66,10 +66,10 @@ Write-Host 'COPY_OK'
         using var demux = new k8s.StreamDemuxer(ws);
         demux.Start();
 
-        // Send base64 data via stdin (channel 0)
+        // Send base64 data via stdin as a single line (terminated by newline so ReadLine returns)
         using (var stdinStream = demux.GetStream((byte?)null, (byte)0))
         {
-            var stdinBytes = System.Text.Encoding.UTF8.GetBytes(base64);
+            var stdinBytes = System.Text.Encoding.UTF8.GetBytes(base64 + "\n");
             await stdinStream.WriteAsync(stdinBytes);
         }
 
