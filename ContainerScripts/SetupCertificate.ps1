@@ -11,10 +11,9 @@
 
 $ContactEMailForLetsEncrypt = $env:ContactEMailForLetsEncrypt
 $containerSasUrl = $env:ContainerBlobContainer
-$encryptionPassword = $env:EncryptionPassword
 
-if ($encryptionPassword) {
-    $CertificatePfxPassword = $encryptionPassword
+if ($env:pfxCertificatePassword) {
+    $CertificatePfxPassword = $env:pfxCertificatePassword
 }
 else {
     $CertificatePfxPassword = [Guid]::NewGuid().ToString().Replace("-","").Substring(0,16)
@@ -24,8 +23,7 @@ $certificatePfxFile = Join-Path $myPath "certificate.pfx"
 $certificateFromBlob = $false
 
 # Try to download existing certificate from blob storage
-Write-Host "ContainerBlobContainer='$containerSasUrl' encryptionPassword='$(if($encryptionPassword){'(set)'}else{'(empty)'})'"
-if ($containerSasUrl -and $encryptionPassword) {
+if ($containerSasUrl -and $env:pfxCertificatePassword) {
     $uri = [System.Uri]$containerSasUrl
     $blobUrl = "$($uri.Scheme)://$($uri.Host)$($uri.AbsolutePath)/certificate.pfx$($uri.Query)"
     Write-Host "Checking for existing certificate in blob storage..."

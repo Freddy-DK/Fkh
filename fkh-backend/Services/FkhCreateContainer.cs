@@ -635,6 +635,14 @@ public class FkhCreateContainer : FkhServiceBase
                     SecretKeyRef = new V1SecretKeySelector { Name = "encryption-secret", Key = "encryptionPassword" }
                 }
             },
+            new()
+            {
+                Name = "pfxCertificatePassword",
+                ValueFrom = new V1EnvVarSource
+                {
+                    SecretKeyRef = new V1SecretKeySelector { Name = "encryption-secret", Key = "encryptionPassword" }
+                }
+            },
             new() { Name = "ContainerBlobContainer", Value = encryptionKeyBlobSasUrl },
         };
 
