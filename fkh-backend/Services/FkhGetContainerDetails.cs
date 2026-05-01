@@ -19,7 +19,7 @@ public class FkhGetContainerDetails : FkhServiceBase
 
         // Find the deployment matching this container name
         var usernamePrefix = $"{githubUsername.ToLowerInvariant()}-";
-        var appName = $"{usernamePrefix}{name.ToLowerInvariant()}";
+        var appName = ResolveAppName(parameters);
         var deploymentName = $"{appName}-deployment";
 
         V1Deployment deployment;
@@ -55,18 +55,15 @@ public class FkhGetContainerDetails : FkhServiceBase
         string? webClientUrl = null;
         try
         {
-            var services = await client.ListNamespacedServiceAsync(Namespace, labelSelector: $"app={appLabel}");
-            var svc = services.Items.FirstOrDefault();
-            if (svc != null)
+            var serviceName = $"{appName}-service";
+            var svc = await client.ReadNamespacedServiceAsync(serviceName, Namespace);
+            var dnsLabel = svc.Metadata.Annotations?.TryGetValue("service.beta.kubernetes.io/azure-dns-label-name", out var label) == true ? label : null;
+            if (dnsLabel != null)
             {
-                var dnsLabel = svc.Metadata.Annotations?.TryGetValue("service.beta.kubernetes.io/azure-dns-label-name", out var label) == true ? label : null;
-                if (dnsLabel != null)
-                {
-                    var fqdn = $"{dnsLabel}.{AksLocation}.cloudapp.azure.com";
-                    webClientUrl = isMultitenant
-                        ? $"https://{fqdn}/BC/?tenant=default"
-                        : $"https://{fqdn}/BC/";
-                }
+                var fqdn = $"{dnsLabel}.{AksLocation}.cloudapp.azure.com";
+                webClientUrl = isMultitenant
+                    ? $"https://{fqdn}/BC/?tenant=default"
+                    : $"https://{fqdn}/BC/";
             }
         }
         catch { /* service lookup failure is non-fatal */ }
