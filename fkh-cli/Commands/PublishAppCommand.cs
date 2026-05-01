@@ -244,24 +244,25 @@ try {{
     $tenant = 'default'
 
     $appInfo = Get-NAVAppInfo -Path $appPath
-    'Publishing app: ' + $appInfo.Name + ' v' + $appInfo.Version | Out-File '{LogPath}' -Append
+    Write-Host ('Publishing app: ' + $appInfo.Name + ' v' + $appInfo.Version)
 
     Publish-NAVApp -ServerInstance $serverInstance -Path $appPath -SkipVerification
-    'Publish-NAVApp completed' | Out-File '{LogPath}' -Append
+    Write-Host 'Publish-NAVApp completed'
 
     Sync-NAVApp -ServerInstance $serverInstance -Name $appInfo.Name -Version $appInfo.Version -Tenant $tenant -Mode {syncMode} -Force
-    'Sync-NAVApp completed' | Out-File '{LogPath}' -Append
+    Write-Host 'Sync-NAVApp completed'
 
     $existingApp = Get-NAVAppInfo -ServerInstance $serverInstance -Tenant $tenant -Name $appInfo.Name -TenantSpecificProperties | Where-Object {{ $_.IsInstalled -eq $true }}
     if ($existingApp) {{
-        'Upgrading from v' + $existingApp.Version | Out-File '{LogPath}' -Append
+        Write-Host ('Upgrading from v' + $existingApp.Version)
         Start-NAVAppDataUpgrade -ServerInstance $serverInstance -Name $appInfo.Name -Version $appInfo.Version -Tenant $tenant
     }} else {{
+        Write-Host 'Installing app'
         Install-NAVApp -ServerInstance $serverInstance -Name $appInfo.Name -Version $appInfo.Version -Tenant $tenant
     }}
-    'Install/Upgrade completed' | Out-File '{LogPath}' -Append
+    Write-Host 'Install/Upgrade completed'
 
-    $resultJson = $appInfo | Select-Object Name, Publisher, Version | ConvertTo-Json -Compress
+    $resultJson = $appInfo | Select-Object Name, Publisher, @{{N='Version';E={{$_.Version.ToString()}}}} | ConvertTo-Json -Compress
     'OK|' + $resultJson | Out-File '{ResultPath}' -NoNewline
 }} catch {{
     'ERROR|' + $_.Exception.Message | Out-File '{ResultPath}' -NoNewline
