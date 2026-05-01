@@ -66,8 +66,6 @@ if ($certificateFromBlob) {
 else {
 
 try {
-
-    throw "use selfsigned"
     Write-Host "Stopping Web Sites"
     Get-Website | Stop-Website
  
