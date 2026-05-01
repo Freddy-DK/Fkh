@@ -55,8 +55,6 @@ env:
   TF_VAR_sql_sa_password: ${{ secrets.SQL_SA_PASSWORD }}
   TF_VAR_github_app_private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
   TF_VAR_create_images_repo: ${{ github.repository }}
-  TF_VAR_fkh_repo: ${{ inputs.fkh-repo }}
-  TF_VAR_fkh_ref: ${{ inputs.fkh-ref }}
   ARM_USE_OIDC: true
 
 jobs:

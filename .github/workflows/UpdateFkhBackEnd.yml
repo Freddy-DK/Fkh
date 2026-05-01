@@ -168,17 +168,6 @@ jobs:
           Write-Host "Resource Group: $resourceGroupName"
 
       # ── Publish function code ─────────────────────────────────────────────
-      - name: Update FKH_REPO and FKH_REF app settings
-        shell: pwsh
-        run: |
-          $functionAppName   = "${{ steps.resolve.outputs.function_app_name }}"
-          $resourceGroupName = "${{ steps.resolve.outputs.resource_group_name }}"
-          az functionapp config appsettings set `
-            --name $functionAppName `
-            --resource-group $resourceGroupName `
-            --settings "FKH_REPO=${{ inputs.fkh-repo }}" "FKH_REF=${{ inputs.fkh-ref }}" `
-            --output none
-
       - name: Publish Azure Function
         shell: pwsh
         working-directory: fkh/fkh-backend

@@ -125,7 +125,7 @@ public class FkhRemoveContainer : FkhServiceBase
             var blobServiceClient = new BlobServiceClient(
                 new Uri($"https://{DbsStorageAccountName}.blob.core.windows.net"), credential);
 
-            var blobContainerClient = blobServiceClient.GetBlobContainerClient(ContainerBlobContainerName);
+            var blobContainerClient = blobServiceClient.GetBlobContainerClient(ContainerFilesBlobContainer);
             var deleted = 0;
             await foreach (var blob in blobContainerClient.GetBlobsAsync(prefix: $"{appName}/"))
             {

@@ -41,10 +41,8 @@ public abstract class FkhServiceBase
     protected FkhServiceBase(ILogger logger)
     {
         Logger = logger;
-        var fkhRepo = Environment.GetEnvironmentVariable("FKH_REPO") ?? "Freddy-DK/Fkh";
-        var fkhRef = Environment.GetEnvironmentVariable("FKH_REF") ?? "main";
-        var repoName = fkhRepo.Split('/')[1];
-        FoldersValue = $@"c:\run\my=https://github.com/{fkhRepo}/archive/refs/heads/{fkhRef}.zip\{repoName}-{fkhRef}\ContainerScripts";
+        var websiteHostname = Environment.GetEnvironmentVariable("WEBSITE_HOSTNAME") ?? "localhost";
+        FoldersValue = $@"c:\run\my=https://{websiteHostname}/api/containerscripts\ContainerScripts";
         SubscriptionId = Environment.GetEnvironmentVariable("AKS_SUBSCRIPTION_ID")
             ?? throw new InvalidOperationException("AKS_SUBSCRIPTION_ID is not configured.");
         ResourceGroup = Environment.GetEnvironmentVariable("AKS_RESOURCE_GROUP")
@@ -372,11 +370,11 @@ public abstract class FkhServiceBase
         return new ExecResult(stdoutTask.Result, stderr);
     }
 
-    protected const string ContainerBlobContainerName = "containerfiles";
+    protected const string ContainerFilesBlobContainer = "containerfiles";
 
     /// <summary>
-    /// Generates a container-level SAS URL with Read, Create, and Write permissions.
-    /// The container script uses this to access blobs (e.g. encryption keys) within the container's folder.
+    /// Generates a container-level SAS URL scoped to the {appName}/ prefix within the 'containerfiles' blob container.
+    /// Creates the blob container if it doesn't exist. Grants Read, Create, and Write permissions.
     /// </summary>
     protected async Task<string> GenerateContainerBlobSasUrlAsync(string appName)
     {
@@ -386,7 +384,7 @@ public abstract class FkhServiceBase
         var blobServiceClient = new BlobServiceClient(
             new Uri($"https://{DbsStorageAccountName}.blob.core.windows.net"), credential);
 
-        var blobContainerClient = blobServiceClient.GetBlobContainerClient(ContainerBlobContainerName);
+        var blobContainerClient = blobServiceClient.GetBlobContainerClient(ContainerFilesBlobContainer);
         await blobContainerClient.CreateIfNotExistsAsync();
 
         var delegationKey = await blobServiceClient.GetUserDelegationKeyAsync(
@@ -394,7 +392,7 @@ public abstract class FkhServiceBase
 
         var sasBuilder = new BlobSasBuilder
         {
-            BlobContainerName = ContainerBlobContainerName,
+            BlobContainerName = ContainerFilesBlobContainer,
             Resource = "c",
             ExpiresOn = DateTimeOffset.UtcNow.AddHours(24)
         };
@@ -405,7 +403,8 @@ public abstract class FkhServiceBase
         {
             Sas = sasBuilder.ToSasQueryParameters(delegationKey, blobServiceClient.AccountName)
         };
-        return blobUriBuilder.ToUri().ToString();
+        // Return the URL including the appName prefix so scripts can access blobs directly under it
+        return $"{blobUriBuilder.ToUri().ToString().Split('?')[0]}/{appName}?{blobUriBuilder.ToUri().Query.TrimStart('?')}";
     }
 
     protected const string AutoStopAnnotation = "fkh/auto-stop-at";

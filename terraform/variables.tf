@@ -215,18 +215,6 @@ variable "create_images_repo" {
   default     = ""
 }
 
-variable "fkh_repo" {
-  description = "GitHub org/repo of the Fkh fork used for deployment (e.g. Freddy-DK/Fkh). Used to construct the ContainerScripts download URL."
-  type        = string
-  default     = "Freddy-DK/Fkh"
-}
-
-variable "fkh_ref" {
-  description = "Git ref (branch/tag) of the Fkh fork used for deployment. Used to construct the ContainerScripts download URL."
-  type        = string
-  default     = "main"
-}
-
 variable "contact_email_for_letsencrypt" {
   description = "Contact email for Let's Encrypt certificate generation."
   type        = string
