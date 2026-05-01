@@ -29,8 +29,16 @@ if ($containerSasUrl -and $env:pfxCertificatePassword) {
     Write-Host "Checking for existing certificate in blob storage..."
     try {
         Invoke-WebRequest -Uri $blobUrl -Method Get -OutFile $certificatePfxFile -UseBasicParsing -ErrorAction Stop
-        Write-Host "Certificate downloaded from blob storage."
-        $certificateFromBlob = $true
+        $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($certificatePfxFile, $CertificatePfxPassword)
+        if ($cert.NotAfter -gt (Get-Date).AddDays(30)) {
+            Write-Host "Certificate downloaded from blob storage (expires $($cert.NotAfter))."
+            $certificateFromBlob = $true
+        }
+        else {
+            Write-Host "Certificate from blob storage expires $($cert.NotAfter), less than 30 days remaining. Creating new certificate."
+            Remove-Item $certificatePfxFile -Force
+        }
+        $cert.Dispose()
     }
     catch {
         if ($_.Exception.Response.StatusCode.value__ -eq 404) {
