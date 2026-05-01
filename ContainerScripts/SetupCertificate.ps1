@@ -55,7 +55,7 @@ if ($certificateFromBlob) {
     $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($certificatePfxFile, $CertificatePfxPassword)
     $certificateThumbprint = $cert.Thumbprint
     Write-Host "Importing Certificate to LocalMachine\my"
-    Import-PfxCertificate -FilePath $certificatePfxFile -CertStoreLocation cert:\localMachine\my -Password (ConvertTo-SecureString -String $CertificatePfxPassword -AsPlainText -Force) -Exportable -KeyStorageFlags MachineKeySet | Out-Null
+    Import-PfxCertificate -FilePath $certificatePfxFile -CertStoreLocation cert:\localMachine\my -Password (ConvertTo-SecureString -String $CertificatePfxPassword -AsPlainText -Force) -Exportable | Out-Null
     $dnsidentity = $cert.GetNameInfo("SimpleName",$false)
     if ($dnsidentity.StartsWith("*")) {
         $dnsidentity = $dnsidentity.Substring($dnsidentity.IndexOf(".")+1)
