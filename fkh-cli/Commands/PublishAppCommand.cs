@@ -76,23 +76,50 @@ sealed class PublishAppCommand : ClientCommand
 
         using var httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
 
+        // Fetch container details (devScope, credentials, webClientUrl) in one call
+        var details = await GetContainerDetailsAsync(httpClient, backendUrl, token, containerName);
+
         // Auto-detect devScope from container metadata if not explicitly set
-        if (!devScope)
+        if (!devScope && details != null)
         {
-            devScope = await DetectDevScopeAsync(httpClient, backendUrl, token, containerName);
+            devScope = details.Value.DevScope;
         }
 
-        // ── Step 1: Upload the .app file ─────────────────────────────────────────
         var fileSize = new FileInfo(appFile).Length;
         var scopeLabel = devScope ? "tenant (dev endpoint)" : "global";
         if (!asJson)
-            Console.WriteLine($"{Ansi.Dim}Uploading {Path.GetFileName(appFile)} ({fileSize / (1024.0 * 1024):N3} Mb) to container '{containerName}' [scope: {scopeLabel}, syncMode: {syncMode}]...{Ansi.Reset}");
+            Console.WriteLine($"{Ansi.Dim}Publishing {Path.GetFileName(appFile)} ({fileSize / (1024.0 * 1024):N3} Mb) to container '{containerName}' [scope: {scopeLabel}, syncMode: {syncMode}]...{Ansi.Reset}");
+
+        // ── Dev scope: publish directly to the container's dev endpoint ───────────
+        if (devScope)
+        {
+            if (details is null)
+            {
+                Console.Error.WriteLine($"{Ansi.Red}Could not retrieve details for container '{containerName}'.{Ansi.Reset}");
+                return 1;
+            }
+
+            var adminUsername = details.Value.AdminUsername;
+            var adminPassword = details.Value.AdminPassword;
+
+            var devEndpointUrl = BuildDevEndpointUrl(details?.WebClientUrl, syncMode);
+            if (devEndpointUrl is null)
+            {
+                Console.Error.WriteLine($"{Ansi.Red}Could not determine dev endpoint URL for container '{containerName}'. Is it running?{Ansi.Reset}");
+                return 1;
+            }
+
+            return await PublishViaDevEndpointAsync(devEndpointUrl, appFile, adminUsername, adminPassword, asJson);
+        }
+
+        // ── Global scope: upload file + run script in container ───────────────────
+        // ── Step 1: Upload the .app file ─────────────────────────────────────────
 
         var uploadResult = await CopyFileToContainerAsync(httpClient, backendUrl, token, containerName, appFile, AppDestPath);
         if (uploadResult != 0) return uploadResult;
 
         // ── Step 2: Upload the publish script ────────────────────────────────────
-        var scriptContent = devScope ? BuildDevScopePublishScript(syncMode) : BuildPublishScript(syncMode);
+        var scriptContent = BuildPublishScript(syncMode);
         var scriptTempFile = Path.GetTempFileName();
         try
         {
@@ -245,64 +272,6 @@ try {{
 ";
     }
 
-    private static string BuildDevScopePublishScript(string syncMode)
-    {
-        var schemaUpdateMode = syncMode switch
-        {
-            "Clean" => "recreate",
-            "ForceSync" => "forcesync",
-            _ => "synchronize"
-        };
-
-        return $@"
-$ErrorActionPreference = 'Stop'
-try {{
-    $appPath = '{AppDestPath}'
-    $tenant = 'default'
-
-    $customConfig = Get-Content 'c:\run\ServiceSettings.json' | ConvertFrom-Json
-    $devPort = $customConfig.DeveloperServicesPort
-    if (-not $devPort) {{ $devPort = '7049' }}
-    $serverInstance = $customConfig.ServerInstance
-    if (-not $serverInstance) {{ $serverInstance = 'BC' }}
-
-    $url = ""http://localhost:$devPort/$serverInstance/dev/apps?SchemaUpdateMode={schemaUpdateMode}&tenant=$tenant""
-    'Publishing to dev endpoint: ' + $url | Out-File '{LogPath}' -Append
-
-    Add-Type -AssemblyName System.Net.Http
-    $handler = New-Object System.Net.Http.HttpClientHandler
-    $httpClient = [System.Net.Http.HttpClient]::new($handler)
-    $httpClient.Timeout = [System.Threading.Timeout]::InfiniteTimeSpan
-    $appBytes = [System.IO.File]::ReadAllBytes($appPath)
-    $appName = [System.IO.Path]::GetFileName($appPath)
-    $multipartContent = [System.Net.Http.MultipartFormDataContent]::new()
-    $fileContent = [System.Net.Http.ByteArrayContent]::new($appBytes)
-    $fileHeader = [System.Net.Http.Headers.ContentDispositionHeaderValue]::new('form-data')
-    $fileHeader.Name = $appName
-    $fileHeader.FileName = $appName
-    $fileContent.Headers.ContentDisposition = $fileHeader
-    $multipartContent.Add($fileContent)
-
-    $result = $httpClient.PostAsync($url, $multipartContent).GetAwaiter().GetResult()
-    if (-not $result.IsSuccessStatusCode) {{
-        $msg = $result.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-        throw ""Dev endpoint publish failed ($($result.StatusCode)): $msg""
-    }}
-    'Dev endpoint publish completed' | Out-File '{LogPath}' -Append
-
-    . 'c:\run\prompt.ps1'
-    $appInfo = Get-NAVAppInfo -Path $appPath
-    $resultJson = $appInfo | Select-Object Name, Publisher, Version | ConvertTo-Json -Compress
-    'OK|' + $resultJson | Out-File '{ResultPath}' -NoNewline
-}} catch {{
-    'ERROR|' + $_.Exception.Message | Out-File '{ResultPath}' -NoNewline
-}} finally {{
-    Remove-Item -Path '{AppDestPath}' -Force -ErrorAction SilentlyContinue
-    Remove-Item -Path '{ScriptPath}' -Force -ErrorAction SilentlyContinue
-}}
-";
-    }
-
     private async Task<int> CopyFileToContainerAsync(HttpClient httpClient, string backendUrl, string token, string containerName, string localFile, string remotePath)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{backendUrl}/CopyFileToContainer");
@@ -443,44 +412,132 @@ try {{
         }
     }
 
-    private async Task<bool> DetectDevScopeAsync(HttpClient httpClient, string backendUrl, string token, string containerName)
+    private static string? BuildDevEndpointUrl(string? webClientUrl, string syncMode)
+    {
+        if (webClientUrl is null) return null;
+
+        // WebClient URL is like https://fqdn/BC/ or https://fqdn/BC/?tenant=default
+        // Dev endpoint is https://fqdn:7049/BC/dev/apps?SchemaUpdateMode=...&tenant=default
+        var uri = new Uri(webClientUrl);
+        var host = uri.Host;
+        // Extract server instance from path (first segment, typically "BC")
+        var pathSegments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var serverInstance = pathSegments.Length > 0 ? pathSegments[0] : "BC";
+
+        var schemaUpdateMode = syncMode switch
+        {
+            "Clean" => "recreate",
+            "ForceSync" => "forcesync",
+            _ => "synchronize"
+        };
+
+        return $"https://{host}:7049/{serverInstance}/dev/apps?SchemaUpdateMode={schemaUpdateMode}&tenant=default";
+    }
+
+    private static async Task<int> PublishViaDevEndpointAsync(string devEndpointUrl, string appFile, string adminUsername, string adminPassword, bool asJson)
     {
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, $"{backendUrl}/ListContainers");
+            if (!asJson)
+                Console.WriteLine($"{Ansi.Dim}Posting to {devEndpointUrl}{Ansi.Reset}");
+
+            using var fileStream = new FileStream(appFile, FileMode.Open, FileAccess.Read);
+            var appFileName = Path.GetFileName(appFile);
+
+            var multipartContent = new MultipartFormDataContent();
+            var fileContent = new StreamContent(fileStream);
+            fileContent.Headers.ContentDisposition = new System.Net.Http.Headers.ContentDispositionHeaderValue("form-data")
+            {
+                Name = appFileName,
+                FileName = appFileName
+            };
+            multipartContent.Add(fileContent);
+
+            // Skip TLS certificate validation for self-signed certs on the container
+            using var handler = new HttpClientHandler
+            {
+                ServerCertificateCustomValidationCallback = (_, _, _, _) => true
+            };
+            using var devHttpClient = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(10) };
+
+            // Basic auth with the container's admin credentials
+            var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{adminUsername}:{adminPassword}"));
+            devHttpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", credentials);
+
+            var response = await devHttpClient.PostAsync(devEndpointUrl, multipartContent);
+            var body = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                Console.Error.WriteLine($"{Ansi.Red}Dev endpoint publish failed ({(int)response.StatusCode}): {body}{Ansi.Reset}");
+                return 1;
+            }
+
+            if (asJson)
+            {
+                Console.WriteLine(JsonSerializer.Serialize(new { message = "App published successfully via dev endpoint.", response = body }));
+            }
+            else
+            {
+                Console.WriteLine($"{Ansi.Cyan}App published successfully via dev endpoint.{Ansi.Reset}");
+            }
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"{Ansi.Red}Failed to publish via dev endpoint: {ex.Message}{Ansi.Reset}");
+            return 1;
+        }
+    }
+
+    private record struct ContainerDetails(string AdminUsername, string AdminPassword, bool DevScope, string? WebClientUrl);
+
+    private static async Task<ContainerDetails?> GetContainerDetailsAsync(HttpClient httpClient, string backendUrl, string token, string containerName)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{backendUrl}/GetContainerDetails");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             request.Content = new StringContent(
-                JsonSerializer.Serialize(new FunctionInvokeRequest { Parameters = new Dictionary<string, string>() }),
+                JsonSerializer.Serialize(new FunctionInvokeRequest
+                {
+                    Parameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["name"] = containerName
+                    }
+                }),
                 Encoding.UTF8,
                 "application/json");
 
             var response = await httpClient.SendAsync(request);
-            if (!response.IsSuccessStatusCode) return false;
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync();
+                Console.Error.WriteLine($"{Ansi.Red}Failed to retrieve container details ({(int)response.StatusCode}): {errorBody}{Ansi.Reset}");
+                return null;
+            }
 
             var body = await response.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(body);
 
-            if (doc.RootElement.TryGetProperty("containers", out var containers) ||
-                doc.RootElement.TryGetProperty("Containers", out containers))
-            {
-                foreach (var container in containers.EnumerateArray())
-                {
-                    // Match by container name (the "Name" field is the short name)
-                    var name = container.TryGetProperty("Name", out var n) ? n.GetString()
-                        : container.TryGetProperty("name", out n) ? n.GetString() : null;
-                    if (string.Equals(name, containerName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        var hasDev = container.TryGetProperty("DevScope", out var dv) ? dv.GetBoolean()
-                            : container.TryGetProperty("devScope", out dv) && dv.GetBoolean();
-                        return hasDev;
-                    }
-                }
-            }
+            var username = doc.RootElement.TryGetProperty("AdminUsername", out var u) ? u.GetString()
+                : doc.RootElement.TryGetProperty("adminUsername", out u) ? u.GetString() : null;
+            var password = doc.RootElement.TryGetProperty("AdminPassword", out var p) ? p.GetString()
+                : doc.RootElement.TryGetProperty("adminPassword", out p) ? p.GetString() : null;
+            var hasDevScope = doc.RootElement.TryGetProperty("DevScope", out var dv) ? dv.GetBoolean()
+                : doc.RootElement.TryGetProperty("devScope", out dv) && dv.GetBoolean();
+            var webClient = doc.RootElement.TryGetProperty("WebClientUrl", out var wc) ? wc.GetString()
+                : doc.RootElement.TryGetProperty("webClientUrl", out wc) ? wc.GetString() : null;
+
+            if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+                return null;
+
+            return new ContainerDetails(username, password, hasDevScope, webClient);
         }
-        catch
+        catch (Exception ex)
         {
-            // If detection fails, fall back to no dev scope
+            Console.Error.WriteLine($"{Ansi.Red}Failed to retrieve container details: {ex.Message}{Ansi.Reset}");
+            return null;
         }
-        return false;
     }
 }

@@ -1,0 +1,101 @@
+using k8s;
+using k8s.Models;
+using Microsoft.Extensions.Logging;
+
+namespace Fkh.Services;
+
+public class FkhGetContainerDetails : FkhServiceBase
+{
+    public FkhGetContainerDetails(ILogger<FkhGetContainerDetails> logger) : base(logger) { }
+
+    public async Task<object> GetContainerDetailsAsync(Dictionary<string, string> parameters)
+    {
+        var name = parameters["name"];
+        var githubUsername = parameters["_githubUsername"];
+        var isAdmin = parameters.TryGetValue("_isAdmin", out var adminValue)
+            && string.Equals(adminValue, "true", StringComparison.OrdinalIgnoreCase);
+
+        var client = await GetKubernetesClientAsync();
+
+        // Find the deployment matching this container name
+        var usernamePrefix = $"{githubUsername.ToLowerInvariant()}-";
+        var appName = $"{usernamePrefix}{name.ToLowerInvariant()}";
+        var deploymentName = $"{appName}-deployment";
+
+        V1Deployment deployment;
+        try
+        {
+            deployment = await client.ReadNamespacedDeploymentAsync(deploymentName, Namespace);
+        }
+        catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            throw new InvalidOperationException($"Container '{name}' not found.");
+        }
+
+        // Verify ownership unless admin
+        var appLabel = deployment.Spec.Template.Metadata.Labels.TryGetValue("app", out var app) ? app : "";
+        if (!isAdmin && !appLabel.StartsWith(usernamePrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new UnauthorizedAccessException($"Container '{name}' does not belong to you.");
+        }
+
+        // DevScope from annotation
+        var devScope = deployment.Metadata.Annotations?.TryGetValue("fkh/dev-scope", out var dv) == true
+            && string.Equals(dv, "true", StringComparison.OrdinalIgnoreCase);
+
+        // Read the admin username from the deployment env vars
+        var container = deployment.Spec.Template.Spec.Containers.FirstOrDefault();
+        var envVars = container?.Env;
+        var adminUsername = envVars?.FirstOrDefault(e => e.Name == "username")?.Value
+            ?? throw new InvalidOperationException("Could not determine admin username from container configuration.");
+
+        var isMultitenant = string.Equals(envVars?.FirstOrDefault(e => e.Name == "multitenant")?.Value, "Y", StringComparison.OrdinalIgnoreCase);
+
+        // Web client URL from the service FQDN
+        string? webClientUrl = null;
+        try
+        {
+            var services = await client.ListNamespacedServiceAsync(Namespace, labelSelector: $"app={appLabel}");
+            var svc = services.Items.FirstOrDefault();
+            if (svc != null)
+            {
+                var dnsLabel = svc.Metadata.Annotations?.TryGetValue("service.beta.kubernetes.io/azure-dns-label-name", out var label) == true ? label : null;
+                if (dnsLabel != null)
+                {
+                    var fqdn = $"{dnsLabel}.{AksLocation}.cloudapp.azure.com";
+                    webClientUrl = isMultitenant
+                        ? $"https://{fqdn}/BC/?tenant=default"
+                        : $"https://{fqdn}/BC/";
+                }
+            }
+        }
+        catch { /* service lookup failure is non-fatal */ }
+
+        // Read the password from the Kubernetes secret
+        var secretName = $"{appName}-secret";
+        V1Secret secret;
+        try
+        {
+            secret = await client.ReadNamespacedSecretAsync(secretName, Namespace);
+        }
+        catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            throw new InvalidOperationException($"Credentials secret for container '{name}' not found.");
+        }
+
+        if (secret.Data == null || !secret.Data.TryGetValue("password", out var passwordBytes))
+        {
+            throw new InvalidOperationException($"Password not found in secret for container '{name}'.");
+        }
+
+        var adminPassword = System.Text.Encoding.UTF8.GetString(passwordBytes);
+
+        return new
+        {
+            AdminUsername = adminUsername,
+            AdminPassword = adminPassword,
+            DevScope = devScope,
+            WebClientUrl = webClientUrl
+        };
+    }
+}

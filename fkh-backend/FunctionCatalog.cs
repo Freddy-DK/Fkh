@@ -583,6 +583,24 @@ public static class FunctionCatalog
         },
         new FunctionDefinition
         {
+            Name = "GetContainerDetails",
+            Description = "Returns admin credentials, dev scope flag, and web client URL for a container. Only the container owner (or an admin) can retrieve details.",
+            Route = "GetContainerDetails",
+            Hidden = true,
+            Parameters = new List<FunctionParameterDefinition>
+            {
+                new()
+                {
+                    Name = "name",
+                    Type = "string",
+                    Description = "Name of the container.",
+                    Required = true,
+                    DefaultValue = null
+                }
+            }
+        },
+        new FunctionDefinition
+        {
             Name = "GetSettings",
             Description = "Gets user settings. Admins can view settings for any user or all users. Users can only view their own settings.",
             Route = "GetSettings",
