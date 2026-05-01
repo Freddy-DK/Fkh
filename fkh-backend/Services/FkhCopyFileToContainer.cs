@@ -46,63 +46,32 @@ public class FkhCopyFileToContainer : FkhServiceBase
 
     private async Task CopyFileToPodAsync(Kubernetes client, string podName, string containerName, byte[] fileData, string destPath)
     {
+        // Send the file to the pod via stdin as base64.
+        // We use stdin instead of command-line arguments to avoid URI length limits
+        // in the Kubernetes exec API (which encodes commands as query parameters).
         var destDir = Path.GetDirectoryName(destPath)?.Replace('/', '\\') ?? "";
         var base64 = Convert.ToBase64String(fileData);
-        const int chunkSize = 65536; // 64KB base64 chunks
-        var tempPath = destPath + ".fkh-tmp";
 
-        // Initialize: create dest directory and empty temp file (original stays untouched)
-        var initScript = $@"
+        var psCommand = $@"
 if (-not (Test-Path '{destDir}')) {{ New-Item -ItemType Directory -Path '{destDir}' -Force | Out-Null }}
-if (Test-Path '{tempPath}') {{ Remove-Item '{tempPath}' -Force }}
-[System.IO.File]::WriteAllBytes('{tempPath}', @())
-Write-Host 'INIT_OK'
+$b64 = [Console]::In.ReadToEnd()
+[System.IO.File]::WriteAllBytes('{destPath}', [System.Convert]::FromBase64String($b64))
+Write-Host 'COPY_OK'
 ";
-        var initResult = await ExecInPodPwshAsync(client, podName, containerName, initScript);
-        if (!initResult.Stdout.Contains("INIT_OK"))
-            throw new InvalidOperationException($"Failed to initialize destination: {initResult}");
-
-        // Write base64 chunks to temp file
-        for (var offset = 0; offset < base64.Length; offset += chunkSize)
-        {
-            var chunk = base64.Substring(offset, Math.Min(chunkSize, base64.Length - offset));
-            var appendScript = $@"
-$chunk = '{chunk}'
-$bytes = [System.Convert]::FromBase64String($chunk)
-$fs = [System.IO.File]::Open('{tempPath}', [System.IO.FileMode]::Append)
-$fs.Write($bytes, 0, $bytes.Length)
-$fs.Close()
-Write-Host 'CHUNK_OK'
-";
-            var appendResult = await ExecInPodPwshAsync(client, podName, containerName, appendScript);
-            if (!appendResult.Stdout.Contains("CHUNK_OK"))
-            {
-                // Clean up temp file on failure — original file is still intact
-                await ExecInPodPwshAsync(client, podName, containerName, $"Remove-Item '{tempPath}' -Force -ErrorAction SilentlyContinue");
-                throw new InvalidOperationException($"Failed to write file chunk at offset {offset}: {appendResult}");
-            }
-        }
-
-        // All chunks written successfully — replace original with temp file
-        var moveScript = $@"
-if (Test-Path '{destPath}') {{ Remove-Item '{destPath}' -Force }}
-Move-Item -Path '{tempPath}' -Destination '{destPath}' -Force
-Write-Host 'MOVE_OK'
-";
-        var moveResult = await ExecInPodPwshAsync(client, podName, containerName, moveScript);
-        if (!moveResult.Stdout.Contains("MOVE_OK"))
-            throw new InvalidOperationException($"Failed to replace destination file: {moveResult}");
-    }
-
-    private async Task<ExecResult> ExecInPodPwshAsync(Kubernetes client, string podName, string containerName, string psScript)
-    {
-        var command = new[] { "pwsh", "-NoProfile", "-Command", psScript };
+        var command = new[] { "pwsh", "-NoProfile", "-Command", psCommand };
         var ws = await client.WebSocketNamespacedPodExecAsync(
             podName, Namespace, command, containerName,
-            stderr: true, stdin: false, stdout: true, tty: false);
+            stderr: true, stdin: true, stdout: true, tty: false);
 
         using var demux = new k8s.StreamDemuxer(ws);
         demux.Start();
+
+        // Send base64 data via stdin (channel 0)
+        using (var stdinStream = demux.GetStream((byte?)null, (byte)0))
+        {
+            var stdinBytes = System.Text.Encoding.UTF8.GetBytes(base64);
+            await stdinStream.WriteAsync(stdinBytes);
+        }
 
         var stdoutStream = demux.GetStream(1, null);
         var stderrStream = demux.GetStream(2, null);
@@ -114,12 +83,13 @@ Write-Host 'MOVE_OK'
         var stderrTask = stderrReader.ReadToEndAsync();
         await Task.WhenAll(stdoutTask, stderrTask);
 
-        var stderr = stderrTask.Result;
-        if (!string.IsNullOrWhiteSpace(stderr))
+        var stdout = stdoutTask.Result;
+        if (!stdout.Contains("COPY_OK"))
         {
-            Logger.LogWarning("BC pod pwsh exec stderr: {StdErr}", stderr);
+            throw new InvalidOperationException($"Failed to copy file to pod: {stderrTask.Result}");
         }
 
-        return new ExecResult(stdoutTask.Result, stderr);
+        Logger.LogInformation("File copied to pod ({Size} bytes).", fileData.Length);
     }
+
 }

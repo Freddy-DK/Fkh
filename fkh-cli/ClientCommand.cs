@@ -360,6 +360,7 @@ static class ClientCommands
 {
     public static List<ClientCommand> All { get; } =
     [
+        new PublishAppCommand(),
         new UploadDatabaseCommand(),
         new DownloadDatabaseCommand(),
         new StatusCommand(),
