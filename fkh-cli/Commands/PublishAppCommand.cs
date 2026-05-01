@@ -10,7 +10,8 @@ sealed class PublishAppCommand : ClientCommand
     [
         new() { Name = "name", Type = "string", Description = "Name of the container.", Required = true },
         new() { Name = "appFile", Type = "file", Description = "Path to the .app file to publish.", Required = true },
-        new() { Name = "syncMode", Type = "string", Description = "Sync mode: Add, ForceSync, Clean, Development (default: Add).", Required = false }
+        new() { Name = "syncMode", Type = "string", Description = "Sync mode: Add, ForceSync, Clean, Development (default: Add).", Required = false },
+        new() { Name = "devScope", Type = "boolean", Description = "Publish to dev/tenant scope using the dev endpoint (like VS Code).", Required = false }
     ];
 
     // Paths inside the container for the detached publish workflow
@@ -51,6 +52,8 @@ sealed class PublishAppCommand : ClientCommand
         }
 
         var syncMode = parameters.TryGetValue("syncMode", out var sm) ? sm : "Add";
+        var devScope = parameters.TryGetValue("devScope", out var ds)
+            && string.Equals(ds, "true", StringComparison.OrdinalIgnoreCase);
         var noWait = args.Any(a => string.Equals(a, "--nowait", StringComparison.OrdinalIgnoreCase));
 
         var backendUrl = settings.BackendUrl?.TrimEnd('/');
@@ -73,16 +76,23 @@ sealed class PublishAppCommand : ClientCommand
 
         using var httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
 
+        // Auto-detect devScope from container metadata if not explicitly set
+        if (!devScope)
+        {
+            devScope = await DetectDevScopeAsync(httpClient, backendUrl, token, containerName);
+        }
+
         // ── Step 1: Upload the .app file ─────────────────────────────────────────
         var fileSize = new FileInfo(appFile).Length;
+        var scopeLabel = devScope ? "tenant (dev endpoint)" : "global";
         if (!asJson)
-            Console.WriteLine($"{Ansi.Dim}Uploading {Path.GetFileName(appFile)} ({fileSize / (1024.0 * 1024):N3} Mb) to container '{containerName}'...{Ansi.Reset}");
+            Console.WriteLine($"{Ansi.Dim}Uploading {Path.GetFileName(appFile)} ({fileSize / (1024.0 * 1024):N3} Mb) to container '{containerName}' [scope: {scopeLabel}, syncMode: {syncMode}]...{Ansi.Reset}");
 
         var uploadResult = await CopyFileToContainerAsync(httpClient, backendUrl, token, containerName, appFile, AppDestPath);
         if (uploadResult != 0) return uploadResult;
 
         // ── Step 2: Upload the publish script ────────────────────────────────────
-        var scriptContent = BuildPublishScript(syncMode);
+        var scriptContent = devScope ? BuildDevScopePublishScript(syncMode) : BuildPublishScript(syncMode);
         var scriptTempFile = Path.GetTempFileName();
         try
         {
@@ -235,6 +245,64 @@ try {{
 ";
     }
 
+    private static string BuildDevScopePublishScript(string syncMode)
+    {
+        var schemaUpdateMode = syncMode switch
+        {
+            "Clean" => "recreate",
+            "ForceSync" => "forcesync",
+            _ => "synchronize"
+        };
+
+        return $@"
+$ErrorActionPreference = 'Stop'
+try {{
+    $appPath = '{AppDestPath}'
+    $tenant = 'default'
+
+    $customConfig = Get-Content 'c:\run\ServiceSettings.json' | ConvertFrom-Json
+    $devPort = $customConfig.DeveloperServicesPort
+    if (-not $devPort) {{ $devPort = '7049' }}
+    $serverInstance = $customConfig.ServerInstance
+    if (-not $serverInstance) {{ $serverInstance = 'BC' }}
+
+    $url = ""http://localhost:$devPort/$serverInstance/dev/apps?SchemaUpdateMode={schemaUpdateMode}&tenant=$tenant""
+    'Publishing to dev endpoint: ' + $url | Out-File '{LogPath}' -Append
+
+    Add-Type -AssemblyName System.Net.Http
+    $handler = New-Object System.Net.Http.HttpClientHandler
+    $httpClient = [System.Net.Http.HttpClient]::new($handler)
+    $httpClient.Timeout = [System.Threading.Timeout]::InfiniteTimeSpan
+    $appBytes = [System.IO.File]::ReadAllBytes($appPath)
+    $appName = [System.IO.Path]::GetFileName($appPath)
+    $multipartContent = [System.Net.Http.MultipartFormDataContent]::new()
+    $fileContent = [System.Net.Http.ByteArrayContent]::new($appBytes)
+    $fileHeader = [System.Net.Http.Headers.ContentDispositionHeaderValue]::new('form-data')
+    $fileHeader.Name = $appName
+    $fileHeader.FileName = $appName
+    $fileContent.Headers.ContentDisposition = $fileHeader
+    $multipartContent.Add($fileContent)
+
+    $result = $httpClient.PostAsync($url, $multipartContent).GetAwaiter().GetResult()
+    if (-not $result.IsSuccessStatusCode) {{
+        $msg = $result.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        throw ""Dev endpoint publish failed ($($result.StatusCode)): $msg""
+    }}
+    'Dev endpoint publish completed' | Out-File '{LogPath}' -Append
+
+    . 'c:\run\prompt.ps1'
+    $appInfo = Get-NAVAppInfo -Path $appPath
+    $resultJson = $appInfo | Select-Object Name, Publisher, Version | ConvertTo-Json -Compress
+    'OK|' + $resultJson | Out-File '{ResultPath}' -NoNewline
+}} catch {{
+    'ERROR|' + $_.Exception.Message | Out-File '{ResultPath}' -NoNewline
+}} finally {{
+    Remove-Item -Path '{AppDestPath}' -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path '{ScriptPath}' -Force -ErrorAction SilentlyContinue
+}}
+";
+    }
+
     private async Task<int> CopyFileToContainerAsync(HttpClient httpClient, string backendUrl, string token, string containerName, string localFile, string remotePath)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{backendUrl}/CopyFileToContainer");
@@ -373,5 +441,46 @@ try {{
                 sb.Append($"{prefix}{element}");
                 break;
         }
+    }
+
+    private async Task<bool> DetectDevScopeAsync(HttpClient httpClient, string backendUrl, string token, string containerName)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{backendUrl}/ListContainers");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            request.Content = new StringContent(
+                JsonSerializer.Serialize(new FunctionInvokeRequest { Parameters = new Dictionary<string, string>() }),
+                Encoding.UTF8,
+                "application/json");
+
+            var response = await httpClient.SendAsync(request);
+            if (!response.IsSuccessStatusCode) return false;
+
+            var body = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(body);
+
+            if (doc.RootElement.TryGetProperty("containers", out var containers) ||
+                doc.RootElement.TryGetProperty("Containers", out containers))
+            {
+                foreach (var container in containers.EnumerateArray())
+                {
+                    // Match by container name (the "Name" field is the short name)
+                    var name = container.TryGetProperty("Name", out var n) ? n.GetString()
+                        : container.TryGetProperty("name", out n) ? n.GetString() : null;
+                    if (string.Equals(name, containerName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var hasDev = container.TryGetProperty("DevScope", out var dv) ? dv.GetBoolean()
+                            : container.TryGetProperty("devScope", out dv) && dv.GetBoolean();
+                        return hasDev;
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // If detection fails, fall back to no dev scope
+        }
+        return false;
     }
 }

@@ -503,47 +503,6 @@ public static class FunctionCatalog
         },
         new FunctionDefinition
         {
-            Name = "PublishApp",
-            Description = "Publishes a .app file to a running Business Central container. The app is copied into the container and installed via Publish-NAVApp.",
-            Route = "PublishApp",
-            Parameters = new List<FunctionParameterDefinition>
-            {
-                new()
-                {
-                    Name = "name",
-                    Type = "string",
-                    Description = "Name of the container to publish the app to.",
-                    Required = true,
-                    DefaultValue = null
-                },
-                new()
-                {
-                    Name = "appFile",
-                    Type = "file",
-                    Description = "Path to the .app file to publish.",
-                    Required = true,
-                    DefaultValue = null
-                },
-                new()
-                {
-                    Name = "syncMode",
-                    Type = "string",
-                    Description = "Sync mode for the app (Add, ForceSync, Clean, Development).",
-                    Required = false,
-                    DefaultValue = "Add"
-                },
-                new()
-                {
-                    Name = "devScope",
-                    Type = "boolean",
-                    Description = "Publish the app to the dev scope using the dev endpoint (like VS Code does). Automatically enabled when the container was created with moveAllAppsToDevScope.",
-                    Required = false,
-                    DefaultValue = null
-                }
-            }
-        },
-        new FunctionDefinition
-        {
             Name = "GetDatabaseUploadSas",
             Description = "Returns a SAS URL for uploading database backups to blob storage. Admin only.",
             Route = "GetDatabaseUploadSas",

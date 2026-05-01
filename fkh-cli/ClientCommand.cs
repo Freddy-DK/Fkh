@@ -44,10 +44,14 @@ abstract class ClientCommand
                 continue;
             }
 
-            i++;
-            if (i >= args.Length)
-                throw new InvalidOperationException($"Missing value for --{key}");
+            // If no following value or next arg is another flag, treat as boolean
+            if (i + 1 >= args.Length || args[i + 1].StartsWith("--", StringComparison.Ordinal))
+            {
+                parameters[key] = "true";
+                continue;
+            }
 
+            i++;
             parameters[key] = args[i];
         }
         return parameters;

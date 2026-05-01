@@ -161,6 +161,8 @@ public class FkhListContainers : FkhServiceBase
             // Repo and project metadata
             string? repo = deployment.Metadata.Annotations?.TryGetValue("fkh/repo", out var r) == true && !string.IsNullOrEmpty(r) ? r : null;
             string? proj = deployment.Metadata.Annotations?.TryGetValue("fkh/project", out var p) == true && !string.IsNullOrEmpty(p) ? p : null;
+            var devScope = deployment.Metadata.Annotations?.TryGetValue("fkh/dev-scope", out var dv) == true
+                && string.Equals(dv, "true", StringComparison.OrdinalIgnoreCase);
 
             // Container env vars – extract database, multitenant, auth info
             var envVars = container?.Env;
@@ -219,6 +221,7 @@ public class FkhListContainers : FkhServiceBase
                 Database = databaseNameEnv,
                 TenantDatabase = tenantDatabaseEnv,
                 Multitenant = isMultitenant,
+                DevScope = devScope,
                 Auth = authEnv,
                 AuthenticationEmail = authenticationEmailEnv,
                 Memory = memoryStr,

@@ -11,18 +11,6 @@ FKH CLI
 Usage:
     fkh <command> [--key "value" ...]
 
-Options:
-    --key "value"       Provide a parameter value (discovered from GetFunctionCatalog)
-    --oidcToken <token> Use a GitHub Actions OIDC token instead of gh auth
-    --ghUser <user>     GitHub user account for gh auth token -u <user>
-    --backendUrl <url>  Override the backend URL (takes priority over env/settings)
-    --nowait            Don't wait for completion (createcontainer, createimage)
-    --asJson            Output the result as JSON
-    --output <path>     Save binary output (e.g. event log) to this file path
-    -h, --help          Show help
-    --version           Show version
-    --completions       Output completion data as JSON (for shell completers)
-
 Configuration (checked in order):
   1. --backendUrl <url>     command-line override
   2. FKH_BACKEND_URL environment variable
@@ -139,9 +127,27 @@ try
     }
     catch (InvalidOperationException ex) when (IsUsageError(ex.Message))
     {
-        Console.Error.WriteLine(ex.Message);
+        Console.Error.WriteLine($"{Ansi.Red}{ex.Message}{Ansi.Reset}");
         Console.WriteLine();
-        PrintUsage(catalog);
+        // If we can identify the command, show its help; otherwise show general usage
+        var errorCommand = args.Length > 0 && !args[0].StartsWith("-") ? args[0] : null;
+        var errorFunc = errorCommand is not null
+            ? catalog.Functions.FirstOrDefault(f => string.Equals(f.Name, errorCommand, StringComparison.OrdinalIgnoreCase))
+            : null;
+        if (errorFunc is not null)
+        {
+            PrintCommandUsage(errorFunc);
+        }
+        else
+        {
+            var errorClientCmd = errorCommand is not null
+                ? clientCommands.FirstOrDefault(c => string.Equals(c.Name, errorCommand, StringComparison.OrdinalIgnoreCase))
+                : null;
+            if (errorClientCmd is not null)
+                PrintClientCommandUsage(errorClientCmd);
+            else
+                PrintUsage(catalog);
+        }
         return 1;
     }
 
@@ -395,14 +401,14 @@ static ParsedArgs ParseArgs(string[] args, FunctionCatalogResponse catalog)
             // Boolean flag — presence means true, no value expected
             parsed.Parameters[key] = "true";
         }
+        else if (i + 1 >= args.Length || args[i + 1].StartsWith("--", StringComparison.Ordinal))
+        {
+            // No following value — treat as boolean flag
+            parsed.Parameters[key] = "true";
+        }
         else
         {
             i++;
-            if (i >= args.Length)
-            {
-                throw new InvalidOperationException($"Missing value for --{key}");
-            }
-
             parsed.Parameters[key] = args[i];
         }
     }
@@ -489,73 +495,49 @@ static void EnsureRequiredParameters(FunctionDefinition function, Dictionary<str
             $"Unknown parameters for {function.Name}: {string.Join(", ", unknown)}");
     }
 
+    // Check for missing required parameters
+    var missing = function.Parameters
+        .Where(p => p.Required
+            && !string.Equals(p.Type, "file", StringComparison.OrdinalIgnoreCase)
+            && (!parameters.TryGetValue(p.Name, out var v) || string.IsNullOrWhiteSpace(v)))
+        .Select(p => p.Name)
+        .ToList();
+
+    // Also check file-type required params (they won't be in parameters dict yet)
+    var missingFiles = function.Parameters
+        .Where(p => p.Required
+            && string.Equals(p.Type, "file", StringComparison.OrdinalIgnoreCase)
+            && (!parameters.TryGetValue(p.Name, out var v) || string.IsNullOrWhiteSpace(v)))
+        .Select(p => p.Name)
+        .ToList();
+    missing.AddRange(missingFiles);
+
+    if (missing.Count > 0)
+    {
+        throw new InvalidOperationException(
+            $"Missing required parameters for {function.Name}: {string.Join(", ", missing.Select(m => $"--{m}"))}");
+    }
+
+    // Auto-detect IP if not provided
+    foreach (var parameter in function.Parameters.Where(p =>
+        string.Equals(p.Name, "ip", StringComparison.OrdinalIgnoreCase)
+        && (!parameters.TryGetValue(p.Name, out var v) || string.IsNullOrWhiteSpace(v))))
+    {
+        var detectedIp = DetectPublicIp();
+        if (detectedIp is not null)
+            parameters[parameter.Name] = detectedIp;
+    }
+
+    // Apply defaults for optional parameters
     foreach (var parameter in function.Parameters)
     {
         if (!parameters.TryGetValue(parameter.Name, out var value) || string.IsNullOrWhiteSpace(value))
         {
-            if (parameter.Required)
+            if (!string.IsNullOrWhiteSpace(parameter.DefaultValue))
             {
-                // Auto-detect public IP for parameters named 'ip'
-                string? detectedDefault = null;
-                if (string.Equals(parameter.Name, "ip", StringComparison.OrdinalIgnoreCase))
-                {
-                    detectedDefault = DetectPublicIp();
-                }
-
-                var prompt = $"Enter {parameter.Name}";
-                if (!string.IsNullOrWhiteSpace(parameter.Description))
-                {
-                    prompt += $" ({parameter.Description})";
-                }
-                if (detectedDefault is not null)
-                {
-                    prompt += $" [{detectedDefault}]";
-                }
-                prompt += ": ";
-
-                var secret = parameter.Name.Contains("password", StringComparison.OrdinalIgnoreCase);
-                value = ReadValueWithDefault(prompt, secret, detectedDefault);
-            }
-            else if (!string.IsNullOrWhiteSpace(parameter.DefaultValue))
-            {
-                value = parameter.DefaultValue;
+                parameters[parameter.Name] = parameter.DefaultValue;
             }
         }
-
-        if (!string.IsNullOrWhiteSpace(value))
-        {
-            parameters[parameter.Name] = value;
-        }
-    }
-}
-
-static string ReadValueWithDefault(string prompt, bool secret, string? defaultValue)
-{
-    while (true)
-    {
-        Console.Write(prompt);
-        string? value;
-        if (secret)
-        {
-            value = ReadSecret();
-            Console.WriteLine();
-        }
-        else
-        {
-            value = Console.ReadLine();
-        }
-
-        if (string.IsNullOrWhiteSpace(value) && defaultValue is not null)
-        {
-            return defaultValue;
-        }
-
-        if (!string.IsNullOrWhiteSpace(value))
-        {
-            return value.Trim();
-        }
-
-        Console.WriteLine("Value is required.");
     }
 }
 
@@ -580,36 +562,8 @@ static bool IsUsageError(string message)
         || message.StartsWith("Unknown argument:", StringComparison.OrdinalIgnoreCase)
         || message.StartsWith("Missing value for --", StringComparison.OrdinalIgnoreCase)
         || message.StartsWith("Parameter name cannot be empty", StringComparison.OrdinalIgnoreCase)
-        || message.StartsWith("Unknown parameters for", StringComparison.OrdinalIgnoreCase);
-}
-
-static string ReadSecret()
-{
-    var builder = new StringBuilder();
-    while (true)
-    {
-        var key = Console.ReadKey(intercept: true);
-        if (key.Key == ConsoleKey.Enter)
-        {
-            break;
-        }
-
-        if (key.Key == ConsoleKey.Backspace)
-        {
-            if (builder.Length > 0)
-            {
-                builder.Length--;
-            }
-            continue;
-        }
-
-        if (!char.IsControl(key.KeyChar))
-        {
-            builder.Append(key.KeyChar);
-        }
-    }
-
-    return builder.ToString();
+        || message.StartsWith("Unknown parameters for", StringComparison.OrdinalIgnoreCase)
+        || message.StartsWith("Missing required parameters for", StringComparison.OrdinalIgnoreCase);
 }
 
 static void PrintCommandUsage(FunctionDefinition function)
@@ -633,7 +587,8 @@ static void PrintCommandUsage(FunctionDefinition function)
                 $"        {parameter.Description}");
         }
     }
-
+    Console.WriteLine();
+    PrintCommonOptions();
 }
 
 static void PrintClientCommandUsage(ClientCommand cmd)
@@ -652,48 +607,57 @@ static void PrintClientCommandUsage(ClientCommand cmd)
             Console.WriteLine($"        {param.Description}");
         }
     }
+    Console.WriteLine();
+    PrintCommonOptions();
+}
+
+static void PrintCommonOptions()
+{
+    Console.WriteLine("Common options:");
+    Console.WriteLine("    --backendUrl <url>  Override the backend URL");
+    Console.WriteLine("    --ghUser <user>     GitHub user account for gh auth token");
+    Console.WriteLine("    --oidcToken <token>  Use a GitHub Actions OIDC token");
+    Console.WriteLine("    --nowait            Don't wait for completion");
+    Console.WriteLine("    --asJson            Output the result as JSON");
+    Console.WriteLine("    --output <path>     Save binary output to a file");
+    Console.WriteLine("    -h, --help          Show help");
 }
 
 static void PrintUsage(FunctionCatalogResponse catalog)
 {
-    Console.WriteLine(Help);
+    Console.WriteLine("FKH CLI");
     Console.WriteLine();
-    Console.WriteLine("Available commands:");
+    Console.WriteLine("Usage: fkh <command> [--key \"value\" ...]");
+    Console.WriteLine();
+    PrintCommonOptions();
+    Console.WriteLine();
+    Console.WriteLine("Commands:");
+
+    // Determine column width for alignment
+    var allNames = catalog.Functions.Select(f => f.Name.ToLowerInvariant()).ToList();
+    var clientCmds = ClientCommands.All;
+    allNames.AddRange(clientCmds.Select(c => c.Name.ToLowerInvariant()));
+    var maxLen = allNames.Max(n => n.Length);
 
     foreach (var function in catalog.Functions)
     {
-        Console.WriteLine($"  {function.Name.ToLowerInvariant()}");
-        Console.WriteLine($"    {function.Description}");
-
-        foreach (var parameter in function.Parameters)
-        {
-            var requiredText = parameter.Required ? "required" : "optional";
-            var defaultText = string.IsNullOrWhiteSpace(parameter.DefaultValue)
-                ? string.Empty
-                : $", default='{parameter.DefaultValue}'";
-
-            Console.WriteLine(
-                $"    --{parameter.Name} <{parameter.Type}> [{requiredText}{defaultText}] - {parameter.Description}");
-        }
+        var name = function.Name.ToLowerInvariant();
+        Console.WriteLine($"  {name.PadRight(maxLen)}  {function.Description}");
     }
 
-    // Client-side commands
-    var clientCmds = ClientCommands.All;
     if (clientCmds.Count > 0)
     {
         Console.WriteLine();
         Console.WriteLine("Client-side commands:");
         foreach (var cmd in clientCmds)
         {
-            Console.WriteLine($"  {cmd.Name.ToLowerInvariant()}");
-            Console.WriteLine($"    {cmd.Description}");
-            foreach (var param in cmd.Parameters)
-            {
-                var requiredText = param.Required ? "required" : "optional";
-                Console.WriteLine($"    --{param.Name} <{param.Type}> [{requiredText}] - {param.Description}");
-            }
+            var name = cmd.Name.ToLowerInvariant();
+            Console.WriteLine($"  {name.PadRight(maxLen)}  {cmd.Description}");
         }
     }
+
+    Console.WriteLine();
+    Console.WriteLine("Use 'fkh <command> --help' for more information about a command.");
 }
 
 static async Task<int> GenerateCompletionDataAsync(string[] args)
