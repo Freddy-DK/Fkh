@@ -157,6 +157,13 @@ jobs:
               Write-Host "Blob '$blobName' already exists in container '$containerName'. Skipping upload."
           }
 
+      - name: Azure login (OIDC)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
       - name: Upload app and tenant database backups
         shell: pwsh
         env:
@@ -213,6 +220,19 @@ jobs:
             }
           }
 
+      - name: Azure login (OIDC)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Login to ACR
+        shell: pwsh
+        run: |
+          az acr login --name $env:ACR_LOGIN_SERVER
+          if ($LASTEXITCODE -ne 0) { throw "Failed to login to ACR" }
+
       - name: Build and push image
         shell: pwsh
         run: |
@@ -220,11 +240,6 @@ jobs:
           Import-Module BcContainerHelper -disableNameChecking
           New-BcImage -artifactUrl $env:ARTIFACT_URL -imageName $env:IMAGE_NAME -baseImage $env:BASE_IMAGE -multitenant:$false
 
-          # Delay ACR login until after the local image exists, so transient
-          # Docker startup issues do not fail the workflow before any registry
-          # access is actually needed.
-          az acr login --name $env:ACR_LOGIN_SERVER
-          if ($LASTEXITCODE -ne 0) { throw "Failed to login to ACR" }
 
           docker tag $env:IMAGE_NAME "$env:ACR_LOGIN_SERVER/businesscentral:$env:IMAGE_TAG"
           docker push "$env:ACR_LOGIN_SERVER/businesscentral:$env:IMAGE_TAG"
