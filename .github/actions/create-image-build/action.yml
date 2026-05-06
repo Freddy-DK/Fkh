@@ -1,0 +1,174 @@
+name: 'Create Image - Build'
+description: 'Downloads BC artifacts, uploads database backups to Azure Storage, and builds/pushes a Docker image to ACR'
+inputs:
+  artifactUrl:
+    description: 'The BC artifact URL to build an image from'
+    required: true
+  acrLoginServer:
+    description: 'ACR login server'
+    required: true
+  dbsStorageAccount:
+    description: 'Azure Storage account name for database backups'
+    required: true
+  azureClientId:
+    description: 'Azure client ID for OIDC login'
+    required: true
+  azureTenantId:
+    description: 'Azure tenant ID for OIDC login'
+    required: true
+  azureSubscriptionId:
+    description: 'Azure subscription ID for OIDC login'
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - name: Download artifacts
+      shell: pwsh
+      env:
+        ARTIFACT_URL: ${{ inputs.artifactUrl }}
+      run: |
+        $ErrorActionPreference = "Stop"
+        Install-Module -Name BcContainerHelper -Force
+        Import-Module BcContainerHelper -disableNameChecking
+        $artifactUrl = $env:ARTIFACT_URL
+        $baseImage = Get-BestGenericImageName
+        $labels = Get-BcContainerImageLabels $baseImage
+        $osversion = $labels.osversion
+        Write-Host "Downloading artifacts for: $artifactUrl"
+        Write-Host "Using base image: $baseImage"
+        $appUri = [Uri]::new($artifactUrl)
+        $imageTag = "$($appUri.AbsolutePath.Replace('/','-').TrimStart('-'))".ToLowerInvariant()
+        $artifactPath = Download-Artifacts -artifactUrl $artifactUrl -includePlatform
+        $manifest = Get-Content -Path (Join-Path $artifactPath[0] "manifest.json") | ConvertFrom-Json
+        $bakFile = Join-Path $artifactPath[0] $manifest.database
+        if (!(Test-Path $bakFile)) {
+            throw "Unable to locate database backup in artifacts"
+        }
+        # Save variables for subsequent steps
+        "IMAGE_TAG=$imageTag" | Out-File -FilePath $env:GITHUB_ENV -Append
+        "IMAGE_NAME=my:$imageTag" | Out-File -FilePath $env:GITHUB_ENV -Append
+        "OS_VERSION=$osversion" | Out-File -FilePath $env:GITHUB_ENV -Append
+        "BAK_FILE=$bakFile" | Out-File -FilePath $env:GITHUB_ENV -Append
+        "ARTIFACT_URL=$artifactUrl" | Out-File -FilePath $env:GITHUB_ENV -Append
+        "BASE_IMAGE=$baseImage" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+    - name: Azure login (OIDC)
+      uses: azure/login@v3
+      with:
+        client-id: ${{ inputs.azureClientId }}
+        tenant-id: ${{ inputs.azureTenantId }}
+        subscription-id: ${{ inputs.azureSubscriptionId }}
+
+    - name: Upload database backup
+      shell: pwsh
+      env:
+        DBS_STORAGE_ACCOUNT: ${{ inputs.dbsStorageAccount }}
+      run: |
+        $ErrorActionPreference = "Stop"
+        Import-Module BcContainerHelper -disableNameChecking
+        $storageAccount = $env:DBS_STORAGE_ACCOUNT
+        $containerName = "cronus"
+        $blobName = $env:IMAGE_TAG
+        $bakFile = $env:BAK_FILE
+        $existingBlob = az storage blob show --account-name $storageAccount --container-name $containerName --name $blobName --auth-mode login 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Blob '$blobName' not found in container '$containerName'. Uploading..."
+            az storage container create --account-name $storageAccount --name $containerName --auth-mode login | Out-Null
+            az storage blob upload --account-name $storageAccount --container-name $containerName --name $blobName --file $bakFile --auth-mode login --overwrite false
+            if ($LASTEXITCODE -ne 0) { throw "Failed to upload database backup to storage account" }
+            Write-Host "Upload complete."
+        } else {
+            Write-Host "Blob '$blobName' already exists in container '$containerName'. Skipping upload."
+        }
+
+    - name: Azure login (OIDC)
+      uses: azure/login@v3
+      with:
+        client-id: ${{ inputs.azureClientId }}
+        tenant-id: ${{ inputs.azureTenantId }}
+        subscription-id: ${{ inputs.azureSubscriptionId }}
+
+    - name: Upload app and tenant database backups
+      shell: pwsh
+      env:
+        DBS_STORAGE_ACCOUNT: ${{ inputs.dbsStorageAccount }}
+      run: |
+        $ErrorActionPreference = "Stop"
+        $storageAccount = $env:DBS_STORAGE_ACCOUNT
+        $containerName = "cronus"
+        $exists = $true
+        foreach($dbname in @('app','tenant')) {
+          $blobName = "$($env:IMAGE_TAG)-$dbname"
+          $existingBlob = az storage blob show --account-name $storageAccount --container-name $containerName --name $blobName --auth-mode login 2>&1
+          if ($LASTEXITCODE -ne 0) {
+              $exists = $false
+              break
+          }
+        }
+        if ($exists) {
+            Write-Host "Blobs for app and tenant databases already exist. Skipping upload."
+            return
+        }
+        Import-Module BcContainerHelper -disableNameChecking
+        $credential = New-Object pscredential -ArgumentList 'admin', (ConvertTo-SecureString -String ([Guid]::NewGuid().ToString()) -AsPlainText -Force)
+        New-BcContainer -accept_eula -containerName bcserver -artifactUrl $env:ARTIFACT_URL -auth UserPassword -Credential $credential -multitenant -myScripts @( @{ "SetupTenant.ps1" = {
+          $customConfigFile = Join-Path (Get-Item "C:\Program Files\Microsoft Dynamics NAV\*\Service").FullName "CustomSettings.config"
+          [xml]$customConfig = [System.IO.File]::ReadAllText($customConfigFile)
+          $serverInstance = $customConfig.SelectSingleNode("//appSettings/add[@key='ServerInstance']").Value
+          $multitenant = ($customConfig.SelectSingleNode("//appSettings/add[@key='Multitenant']").Value -eq "true")
+          $databaseServer = $customConfig.SelectSingleNode("//appSettings/add[@key='DatabaseServer']").Value
+          $databaseInstance = $customConfig.SelectSingleNode("//appSettings/add[@key='DatabaseInstance']").Value
+          $databaseName = $customConfig.SelectSingleNode("//appSettings/add[@key='DatabaseName']").Value
+          Write-Host -ForegroundColor Yellow "HERE WE GO $serverInstance $databaseName"
+          $databaseServerInstance = $databaseServer
+          if ("$databaseInstance" -ne "") {
+              $databaseServerInstance = "$databaseServer\$databaseInstance"
+          }
+          Dismount-NavTenant -ServerInstance $ServerInstance -Tenant 'default' -Force | Out-Host
+          Backup-SqlDatabase -ServerInstance $databaseServerInstance -database 'default' -BackupFile 'c:\run\my\tenant.bak'
+          Backup-SqlDatabase -ServerInstance $databaseServerInstance -database $databaseName -BackupFile "c:\run\my\app.bak"
+          Mount-NavTenant -ServerInstance $ServerInstance -Tenant 'default' -DatabaseName 'default' -OverwriteTenantIdInDatabase -Force | Out-Host
+        }}) -ErrorAction SilentlyIgnore
+        foreach($dbname in @('app','tenant')) {
+          $blobName = "$($env:IMAGE_TAG)-$dbname"
+          $bakFile = Join-Path $bcContainerHelperConfig.hostHelperFolder "extensions\bcserver\my\$($dbname).bak"
+          $existingBlob = az storage blob show --account-name $storageAccount --container-name $containerName --name $blobName --auth-mode login 2>&1
+          if ($LASTEXITCODE -ne 0) {
+              Write-Host "Blob '$blobName' not found in container '$containerName'. Uploading..."
+              az storage container create --account-name $storageAccount --name $containerName --auth-mode login | Out-Null
+              az storage blob upload --account-name $storageAccount --container-name $containerName --name $blobName --file $bakFile --auth-mode login --overwrite false
+              if ($LASTEXITCODE -ne 0) { throw "Failed to upload database backup to storage account" }
+              Write-Host "Upload complete."
+          } else {
+              Write-Host "Blob '$blobName' already exists in container '$containerName'. Skipping upload."
+          }
+        }
+
+    - name: Azure login (OIDC)
+      uses: azure/login@v3
+      with:
+        client-id: ${{ inputs.azureClientId }}
+        tenant-id: ${{ inputs.azureTenantId }}
+        subscription-id: ${{ inputs.azureSubscriptionId }}
+
+    - name: Login to ACR
+      shell: pwsh
+      env:
+        ACR_LOGIN_SERVER: ${{ inputs.acrLoginServer }}
+      run: |
+        az acr login --name $env:ACR_LOGIN_SERVER
+        if ($LASTEXITCODE -ne 0) { throw "Failed to login to ACR" }
+
+    - name: Build and push image
+      shell: pwsh
+      env:
+        ACR_LOGIN_SERVER: ${{ inputs.acrLoginServer }}
+      run: |
+        $ErrorActionPreference = "Stop"
+        Import-Module BcContainerHelper -disableNameChecking
+        New-BcImage -artifactUrl $env:ARTIFACT_URL -imageName $env:IMAGE_NAME -baseImage $env:BASE_IMAGE -multitenant:$false
+
+        docker tag $env:IMAGE_NAME "$env:ACR_LOGIN_SERVER/businesscentral:$env:IMAGE_TAG"
+        docker push "$env:ACR_LOGIN_SERVER/businesscentral:$env:IMAGE_TAG"
+        docker tag $env:IMAGE_NAME "$env:ACR_LOGIN_SERVER/businesscentral-$($env:OS_VERSION):$env:IMAGE_TAG"
+        docker push "$env:ACR_LOGIN_SERVER/businesscentral-$($env:OS_VERSION):$env:IMAGE_TAG"

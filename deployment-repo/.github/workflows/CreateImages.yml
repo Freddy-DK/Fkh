@@ -24,16 +24,30 @@ on:
         type: string
 
 jobs:
-  create:
-    uses: Freddy-DK/Fkh/.github/workflows/CreateImages.yml@main
-    permissions:
-      id-token: write
-      contents: read
-    with:
-      artifactUrls: ${{ inputs.artifactUrls }}
-    secrets:
-      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
-      DBS_STORAGE_ACCOUNT: ${{ secrets.DBS_STORAGE_ACCOUNT }}
+  prepare:
+    runs-on: windows-2022
+    outputs:
+      matrix: ${{ steps.prepare.outputs.matrix }}
+    steps:
+      - name: Prepare matrix
+        id: prepare
+        uses: frottke/Fkh/.github/actions/create-image-prepare@main
+        with:
+          artifactUrls: ${{ inputs.artifactUrls }}
+
+  build:
+    needs: prepare
+    runs-on: windows-2022
+    strategy:
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+      fail-fast: false
+    steps:
+      - name: Create BC Image
+        uses: frottke/Fkh/.github/actions/create-image-build@main
+        with:
+          artifactUrl: ${{ matrix.artifactUrl }}
+          acrLoginServer: ${{ secrets.ACR_LOGIN_SERVER }}
+          dbsStorageAccount: ${{ secrets.DBS_STORAGE_ACCOUNT }}
+          azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
+          azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
+          azureSubscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
