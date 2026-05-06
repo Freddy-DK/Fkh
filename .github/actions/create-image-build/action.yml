@@ -109,9 +109,13 @@ runs:
             Write-Host "Blobs for app and tenant databases already exist. Skipping upload."
             return
         }
+
+        $bccontainerName = -join (1..8 | % { [char](Get-Random -InputObject (97..122)) })
+        "BC_CONTAINER_NAME=$bccontainerName" | Out-File -FilePath $env:GITHUB_ENV -Append
+
         Import-Module BcContainerHelper -disableNameChecking
         $credential = New-Object pscredential -ArgumentList 'admin', (ConvertTo-SecureString -String ([Guid]::NewGuid().ToString()) -AsPlainText -Force)
-        New-BcContainer -accept_eula -containerName bcserver -artifactUrl $env:ARTIFACT_URL -auth UserPassword -Credential $credential -multitenant -myScripts @( @{ "SetupTenant.ps1" = {
+        New-BcContainer -accept_eula -containerName $bccontainerName -artifactUrl $env:ARTIFACT_URL -auth UserPassword -Credential $credential -multitenant -myScripts @( @{ "SetupTenant.ps1" = {
           $customConfigFile = Join-Path (Get-Item "C:\Program Files\Microsoft Dynamics NAV\*\Service").FullName "CustomSettings.config"
           [xml]$customConfig = [System.IO.File]::ReadAllText($customConfigFile)
           $serverInstance = $customConfig.SelectSingleNode("//appSettings/add[@key='ServerInstance']").Value
@@ -131,7 +135,7 @@ runs:
         }}) -ErrorAction SilentlyIgnore
         foreach($dbname in @('app','tenant')) {
           $blobName = "$($env:IMAGE_TAG)-$dbname"
-          $bakFile = Join-Path $bcContainerHelperConfig.hostHelperFolder "extensions\bcserver\my\$($dbname).bak"
+          $bakFile = Join-Path $bcContainerHelperConfig.hostHelperFolder "extensions\$($bccontainerName)\my\$($dbname).bak"
           $existingBlob = az storage blob show --account-name $storageAccount --container-name $containerName --name $blobName --auth-mode login 2>&1
           if ($LASTEXITCODE -ne 0) {
               Write-Host "Blob '$blobName' not found in container '$containerName'. Uploading..."
@@ -172,3 +176,10 @@ runs:
         docker push "$env:ACR_LOGIN_SERVER/businesscentral:$env:IMAGE_TAG"
         docker tag $env:IMAGE_NAME "$env:ACR_LOGIN_SERVER/businesscentral-$($env:OS_VERSION):$env:IMAGE_TAG"
         docker push "$env:ACR_LOGIN_SERVER/businesscentral-$($env:OS_VERSION):$env:IMAGE_TAG"
+
+    - name: Cleanup
+      if: always()
+      shell: pwsh
+      run: |
+        # Remove the temp container (if multitenant backup step ran)
+        Remove-BcContainer -containerName $env:BC_CONTAINER_NAME
