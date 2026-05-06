@@ -183,3 +183,27 @@ runs:
       run: |
         # Remove the temp container (if multitenant backup step ran)
         Remove-BcContainer -containerName $env:BC_CONTAINER_NAME
+
+        # Remove the temp build image (my:tag)
+        if ($env:IMAGE_NAME) { docker rmi $env:IMAGE_NAME 2>$null }
+
+        # Remove the ACR-tagged images (already pushed, no need to keep locally)
+        if ($env:IMAGE_TAG) {
+          docker rmi "$env:ACR_LOGIN_SERVER/businesscentral:$env:IMAGE_TAG" 2>$null
+          docker rmi "$env:ACR_LOGIN_SERVER/businesscentral-$($env:OS_VERSION):$env:IMAGE_TAG" 2>$null
+        }
+
+        # Remove this build's artifact cache (specific version only)
+        if ($env:ARTIFACT_URL) {
+          $appUri = [Uri]::new($env:ARTIFACT_URL)
+          # Path structure: C:\bcartifacts.cache\<type>\<version>  e.g. sandbox\28.0.46665.49991
+          $segments = $appUri.AbsolutePath.TrimStart('/') -split '/'
+          # segments[0] = type (sandbox), segments[1] = version, segments[2] = country
+          if ($segments.Count -ge 2) {
+            $cacheFolder = Join-Path "C:\bcartifacts.cache" $segments[0] $segments[1]
+            if (Test-Path $cacheFolder) {
+              Remove-Item -Path $cacheFolder -Recurse -Force -ErrorAction SilentlyContinue
+              Write-Host "Cleaned artifact cache: $cacheFolder"
+            }
+          }
+        }
