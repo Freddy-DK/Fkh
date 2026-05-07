@@ -181,16 +181,31 @@ runs:
       if: always()
       shell: pwsh
       run: |
+        function Remove-DockerImageIfExists {
+          param([string]$Image)
+
+          if ([string]::IsNullOrWhiteSpace($Image)) {
+            return
+          }
+
+          docker image inspect $Image *> $null
+          if ($LASTEXITCODE -eq 0) {
+            docker rmi $Image 2>$null
+          }
+
+          $global:LASTEXITCODE = 0
+        }
+
         # Remove the temp container (if multitenant backup step ran)
-        Remove-BcContainer -containerName $env:BC_CONTAINER_NAME
+        Remove-BcContainer -containerName $env:BC_CONTAINER_NAME -ErrorAction SilentlyContinue
 
         # Remove the temp build image (my:tag)
-        if ($env:IMAGE_NAME) { docker rmi $env:IMAGE_NAME 2>$null }
+        Remove-DockerImageIfExists $env:IMAGE_NAME
 
         # Remove the ACR-tagged images (already pushed, no need to keep locally)
-        if ($env:IMAGE_TAG) {
-          docker rmi "$env:ACR_LOGIN_SERVER/businesscentral:$env:IMAGE_TAG" 2>$null
-          docker rmi "$env:ACR_LOGIN_SERVER/businesscentral-$($env:OS_VERSION):$env:IMAGE_TAG" 2>$null
+        if ($env:IMAGE_TAG -and $env:ACR_LOGIN_SERVER) {
+          Remove-DockerImageIfExists "$env:ACR_LOGIN_SERVER/businesscentral:$env:IMAGE_TAG"
+          Remove-DockerImageIfExists "$env:ACR_LOGIN_SERVER/businesscentral-$($env:OS_VERSION):$env:IMAGE_TAG"
         }
 
         # Remove this build's artifact cache (specific version only)
