@@ -182,18 +182,41 @@ runs:
       shell: pwsh
       run: |
         function Remove-DockerImageIfExists {
-          param([string]$Image)
+            param([string]$Image)
 
-          if ([string]::IsNullOrWhiteSpace($Image)) {
-            return
-          }
+            Write-Host "----------------------------------------"
+            Write-Host "Remove-DockerImageIfExists called"
+            Write-Host "Image argument: '$Image'"
 
-          docker image inspect $Image *> $null
-          if ($LASTEXITCODE -eq 0) {
-            docker rmi $Image 2>$null
-          }
+            if ([string]::IsNullOrWhiteSpace($Image)) {
+                Write-Host "SKIP: image argument is empty"
+                $global:LASTEXITCODE = 0
+                return
+            }
 
-          $global:LASTEXITCODE = 0
+            Write-Host "Inspecting image: $Image"
+            docker image inspect "$Image" *> $null
+            $inspectExitCode = $LASTEXITCODE
+            Write-Host "docker image inspect exit code: $inspectExitCode"
+
+            if ($inspectExitCode -eq 0) {
+                Write-Host "FOUND: $Image"
+                Write-Host "Removing image: $Image"
+
+                docker rmi "$Image"
+                $rmiExitCode = $LASTEXITCODE
+
+                Write-Host "docker rmi exit code: $rmiExitCode"
+
+                if ($rmiExitCode -ne 0) {
+                    Write-Host "WARNING: docker rmi failed for image: $Image"
+                }
+            }
+            else {
+                Write-Host "NOT FOUND: $Image"
+            }
+
+            $global:LASTEXITCODE = 0
         }
 
         # Remove the temp container (if multitenant backup step ran)
