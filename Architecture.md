@@ -127,7 +127,7 @@ graph TB
 
 | Workflow | Trigger | Description |
 |----------|---------|-------------|
-| **CreateImages** | `workflow_dispatch` (artifactUrls) | Downloads BC artifacts via `BcContainerHelper`, extracts and uploads the `.bak` database backup to blob storage, builds the container image with `New-BcImage`, and pushes to ACR. Authenticates to Azure via OIDC federated identity. |
+| **CreateImages** | `workflow_dispatch` (artifactUrls) | Thin orchestrator that calls two composite actions from `Freddy-DK/Fkh`: `create-image-prepare` resolves artifact URL shorthands and builds the job matrix; `create-image-build` downloads BC artifacts via `BcContainerHelper`, extracts and uploads the `.bak` database backup to blob storage, builds the container image with `New-BcImage`, and pushes to ACR. Authenticates to Azure via OIDC federated identity. Both composite actions are resolved directly from the Fkh repository, so the deployment repo only needs to define the job orchestration (prepare/build jobs and matrix strategy) — not the implementation steps. |
 
 ## Authentication Flow
 

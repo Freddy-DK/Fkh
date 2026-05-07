@@ -6,7 +6,7 @@ This is a private deployment repository for your [Fkh](https://github.com/Freddy
 
 | Repository | Visibility | Purpose |
 |---|---|---|
-| **Your Fkh fork** | Public | Contains the reusable workflows, Terraform modules, backend code, and CLI |
+| **Your Fkh fork** | Public | Contains the reusable workflows, composite actions, Terraform modules, backend code, and CLI |
 | **This repo** (deployment) | Private | Contains your `deployment.tfvars` and caller workflows that pass secrets |
 
 ## Setup
