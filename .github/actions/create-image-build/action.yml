@@ -180,6 +180,8 @@ runs:
     - name: Cleanup
       if: always()
       shell: pwsh
+      env:
+        ACR_LOGIN_SERVER: ${{ inputs.acrLoginServer }}
       run: |
         function Remove-DockerImageIfExists {
             param([string]$Image)
@@ -203,7 +205,7 @@ runs:
                 Write-Host "FOUND: $Image"
                 Write-Host "Removing image: $Image"
 
-                docker rmi "$Image"
+                docker image rm -f "$Image"
                 $rmiExitCode = $LASTEXITCODE
 
                 Write-Host "docker rmi exit code: $rmiExitCode"
