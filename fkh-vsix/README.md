@@ -84,3 +84,27 @@ Open the command palette and type **Fkh** to see all available commands:
 | `fkh.timezone` | IANA timezone override (e.g. `Europe/Copenhagen`). Useful when running in Codespaces or remote environments where auto-detection returns UTC. |
 
 You can also pre-fill function parameters as settings (e.g. `fkh.CreateContainer.artifactUrl`) to skip prompts for values you use frequently.
+
+## Development
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) (LTS recommended)
+- VS Code
+
+### Setup
+
+```powershell
+cd fkh-vsix
+npm install
+```
+
+### Build
+
+```powershell
+npm run build
+```
+
+### Run / Debug
+
+Press **F5** in VS Code to launch an Extension Development Host with the extension loaded.

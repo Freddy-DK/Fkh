@@ -10,6 +10,10 @@ fkh-vsix/out/
 fkh-vsix/dist/
 fkh-vsix/*.vsix
 
+# Web app dependencies and build output
+fkh-web/node_modules/
+fkh-web/dist/
+
 # Azure Functions local config
 fkh-functions/local.settings.json
 

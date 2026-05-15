@@ -66,6 +66,7 @@ locals {
     AKS_LOCATION                             = var.location
     CONTACT_EMAIL_FOR_LETSENCRYPT             = var.contact_email_for_letsencrypt
     GITHUB_APP_ID                            = var.github_app_id
+    GITHUB_APP_CLIENT_ID                     = var.github_app_client_id
     GITHUB_APP_PRIVATE_KEY                   = var.github_app_private_key
     GITHUB_APP_INSTALLATION_ID               = var.github_app_installation_id
     GITHUB_REPO_OWNER                        = split("/", var.create_images_repo)[0]
@@ -107,6 +108,13 @@ resource "azurerm_windows_function_app" "this" {
       dotnet_version              = "v8.0"
       use_dotnet_isolated_runtime = true
     }
+    dynamic "cors" {
+      for_each = length(local.cors_origins) > 0 ? [1] : []
+      content {
+        allowed_origins     = local.cors_origins
+        support_credentials = true
+      }
+    }
   }
 
   app_settings = local.function_app_settings
@@ -135,6 +143,13 @@ resource "azurerm_windows_function_app" "staging" {
     application_stack {
       dotnet_version              = "v8.0"
       use_dotnet_isolated_runtime = true
+    }
+    dynamic "cors" {
+      for_each = length(local.cors_origins) > 0 ? [1] : []
+      content {
+        allowed_origins     = local.cors_origins
+        support_credentials = true
+      }
     }
   }
 

@@ -1,33 +1,20 @@
 <#
 .SYNOPSIS
-    Publishes Azure Function code to an existing Function App.
+    Publishes Azure Function code and (optionally) the web app to an existing deployment.
 
-.PARAMETER FunctionAppName
-    Name of the Azure Function App. If omitted, read from Terraform output 'function_app_name'.
-
-.PARAMETER ResourceGroupName
-    Name of the Azure resource group containing the Function App. If omitted, read from Terraform output 'resource_group_name'.
-
-.PARAMETER FunctionProjectPath
-    Path to the FKH backend project folder. Defaults to ../fkh-backend relative to this script.
+.PARAMETER VarFile
+    Path to the organization .tfvars file (or https:// URL). Used to derive resource names.
 
 .PARAMETER Staging
-    Publish to the staging Function App instead of production. Reads 'staging_function_app_name' from Terraform output.
+    Publish to the staging Function App instead of production.
 
 .EXAMPLE
-    .\deploy-functionupdate.ps1
-    .\deploy-functionupdate.ps1 -FunctionAppName fkh-myorg-backend
-    .\deploy-functionupdate.ps1 -Staging
+    .\deploy-functionupdate.ps1 -VarFile organizations/my-org.tfvars
+    .\deploy-functionupdate.ps1 -VarFile organizations/my-org.tfvars -Staging
 #>
 param(
-    [Parameter(Mandatory = $false)]
-    [string] $FunctionAppName = "",
-
-    [Parameter(Mandatory = $false)]
-    [string] $ResourceGroupName = "",
-
-    [Parameter(Mandatory = $false)]
-    [string] $FunctionProjectPath = "",
+    [Parameter(Mandatory = $true)]
+    [string] $VarFile,
 
     [Parameter(Mandatory = $false)]
     [switch] $Staging
@@ -37,44 +24,40 @@ $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-if ([string]::IsNullOrWhiteSpace($FunctionProjectPath)) {
-    $FunctionProjectPath = Join-Path $scriptDir ".." "fkh-backend"
-}
-$FunctionProjectPath = Resolve-Path $FunctionProjectPath
+$FunctionProjectPath = Join-Path $scriptDir ".." "fkh-backend" | Resolve-Path
 
 if (-not (Test-Path $FunctionProjectPath)) {
     throw "Function project path not found: $FunctionProjectPath"
 }
 
-# ── Resolve function app name and resource group ─────────────────────────────
+# ── Resolve VarFile ───────────────────────────────────────────────────────────
 
-Push-Location $scriptDir
-try {
-    if ([string]::IsNullOrWhiteSpace($FunctionAppName)) {
-        if ($Staging) {
-            $FunctionAppName = terraform output -raw staging_function_app_name
-            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($FunctionAppName)) {
-                throw "Staging backend is not enabled. Set enable_staging_backend = true in your tfvars and run a full deploy first."
-            }
-        }
-        else {
-            $FunctionAppName = terraform output -raw function_app_name
-            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($FunctionAppName)) {
-                throw "Could not retrieve function_app_name from Terraform output. Pass -FunctionAppName explicitly."
-            }
-        }
-    }
-    if ([string]::IsNullOrWhiteSpace($ResourceGroupName)) {
-        $ResourceGroupName = terraform output -raw resource_group_name
-        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($ResourceGroupName)) {
-            throw "Could not retrieve resource_group_name from Terraform output. Pass -ResourceGroupName explicitly."
-        }
-    }
+if ($VarFile.StartsWith("https://")) {
+    $downloadedFile = Join-Path $scriptDir "organizations" "_from_url.tfvars"
+    New-Item -ItemType Directory -Path (Split-Path $downloadedFile) -Force | Out-Null
+    Invoke-WebRequest -Uri $VarFile -OutFile $downloadedFile -UseBasicParsing
+    Write-Host "Downloaded tfvars from URL -> $downloadedFile" -ForegroundColor Green
+    $VarFile = $downloadedFile
 }
-finally {
-    Pop-Location
+
+if (-not (Test-Path $VarFile)) {
+    throw "Var file not found: $VarFile"
 }
-Write-Host "  Function app: $FunctionAppName" -ForegroundColor Gray
+
+# ── Parse tfvars ──────────────────────────────────────────────────────────────
+
+function Get-TfVar([string]$Name, [string]$File) {
+    $line = Get-Content $File | Where-Object { $_ -match "^\s*$Name\s*=" } | Select-Object -First 1
+    if ($line -match '=\s*"([^"]+)"') { return $Matches[1] }
+    throw "Could not find $Name in $File"
+}
+
+$deploymentName    = Get-TfVar "fkhDeploymentName" $VarFile
+$ResourceGroupName = "fkh-$deploymentName"
+$FunctionAppName   = if ($Staging) { "fkh-$deploymentName-backend-staging" } else { "fkh-$deploymentName-backend" }
+
+Write-Host "  Deployment:     $deploymentName" -ForegroundColor Gray
+Write-Host "  Function app:   $FunctionAppName" -ForegroundColor Gray
 Write-Host "  Resource group: $ResourceGroupName" -ForegroundColor Gray
 if ($Staging) {
     Write-Host "  Target: STAGING" -ForegroundColor Yellow
@@ -147,3 +130,45 @@ Write-Host -ForegroundColor Green @'
                                                                  | |                                         
                                                                  |_|                                         
 '@
+
+# ── Build and deploy web app (skip when deploying to staging only) ────────────
+
+if (-not $Staging) {
+    $webAppName = "fkh-$deploymentName-web"
+    $webDeployToken = $null
+    try {
+        $secretsJson = az staticwebapp secrets list --name $webAppName --resource-group $ResourceGroupName 2>$null | ConvertFrom-Json
+        $webDeployToken = $secretsJson.properties.apiKey
+    } catch { }
+
+    if (-not [string]::IsNullOrWhiteSpace($webDeployToken)) {
+        $webPath = Join-Path $scriptDir ".." "fkh-web"
+        if (Test-Path $webPath) {
+            Write-Host "Building and deploying web app..." -ForegroundColor Cyan
+
+            # Read GitHub App Client ID from tfvars for the Vite build
+            try { $env:VITE_GITHUB_CLIENT_ID = Get-TfVar "github_app_client_id" $VarFile } catch { $env:VITE_GITHUB_CLIENT_ID = "" }
+
+            Push-Location $webPath
+            try {
+                npm ci
+                if ($LASTEXITCODE -ne 0) { throw "npm ci failed." }
+                npm run build
+                if ($LASTEXITCODE -ne 0) { throw "npm run build failed." }
+                npx @azure/static-web-apps-cli deploy ./dist --deployment-token $webDeployToken --env production
+                if ($LASTEXITCODE -ne 0) { throw "SWA deploy failed." }
+                Write-Host "Web app deployed successfully." -ForegroundColor Green
+            }
+            finally {
+                $env:VITE_GITHUB_CLIENT_ID = $null
+                Pop-Location
+            }
+        }
+        else {
+            Write-Host "fkh-web folder not found — skipping web app deploy." -ForegroundColor Yellow
+        }
+    }
+    else {
+        Write-Host "Web app not enabled — skipping." -ForegroundColor Yellow
+    }
+} # end if (-not $Staging)

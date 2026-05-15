@@ -82,3 +82,14 @@ output "dbs_storage_account_name" {
   description = "Name of the storage account for database backups."
   value       = azurerm_storage_account.dbs.name
 }
+
+output "web_app_url" {
+  description = "URL of the Fkh web app (empty if web app is disabled)."
+  value       = var.enable_web_app ? "https://${azurerm_static_web_app.web[0].default_host_name}" : ""
+}
+
+output "web_app_deployment_token" {
+  description = "Deployment token for the Static Web App (used in CI/CD to deploy the built files). Empty if web app is disabled."
+  value       = var.enable_web_app ? azurerm_static_web_app.web[0].api_key : ""
+  sensitive   = true
+}

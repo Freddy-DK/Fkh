@@ -198,6 +198,12 @@ variable "github_app_id" {
   type        = string
 }
 
+variable "github_app_client_id" {
+  description = "Client ID of the GitHub App, used for OAuth login in the web app. Find it on the GitHub App settings page."
+  type        = string
+  default     = ""
+}
+
 variable "github_app_private_key" {
   description = "PEM-encoded private key of the GitHub App. Set via TF_VAR_github_app_private_key, never in tfvars files."
   type        = string
@@ -271,6 +277,18 @@ variable "enable_staging_backend" {
   description = "Deploy a staging Function App alongside production for testing backend changes."
   type        = bool
   default     = false
+}
+
+variable "enable_web_app" {
+  description = "Deploy the Fkh web app as an Azure Static Web App."
+  type        = bool
+  default     = false
+}
+
+variable "static_web_app_location" {
+  description = "Azure region for the Static Web App. Not all regions support Static Web Apps — westeurope and centralus are commonly available."
+  type        = string
+  default     = "westeurope"
 }
 
 variable "function_timeout_minutes" {

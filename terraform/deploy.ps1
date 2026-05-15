@@ -15,7 +15,7 @@
     .\deploy.ps1 -VarFile https://my-storage.blob.core.windows.net/config/my-org.tfvars
 #>
 param(
-    [Parameter(Mandatory = $false)]
+    [Parameter(Mandatory = $true)]
     [string] $VarFile,
 
     [Parameter(Mandatory = $false)]
@@ -79,22 +79,7 @@ if (-not (Test-Path $FunctionProjectPath)) {
 
 # ── Resolve VarFile ───────────────────────────────────────────────────────────
 
-if ([string]::IsNullOrWhiteSpace($VarFile)) {
-    $ghCommand = Get-Command gh -ErrorAction SilentlyContinue
-    if (-not $ghCommand) {
-        throw "VarFile is required when gh CLI is not available. Pass -VarFile or install gh CLI and set the TFVARS_URL repo variable."
-    }
-
-    Write-Host "VarFile not specified — reading TFVARS_URL variable from GitHub repo..." -ForegroundColor Cyan
-    $tfvarsUrl = (& gh variable get TFVARS_URL 2>$null)
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($tfvarsUrl)) {
-        throw "Could not read TFVARS_URL variable from the current GitHub repo. Set the TFVARS_URL repo variable or pass -VarFile."
-    }
-
-    $VarFile = Join-Path $scriptDir "organizations" "_from_url.tfvars"
-    Invoke-WebRequest -Uri $tfvarsUrl -OutFile $VarFile -UseBasicParsing
-    Write-Host "Downloaded tfvars from TFVARS_URL -> $VarFile" -ForegroundColor Green
-} elseif ($VarFile.StartsWith("https://")) {
+if ($VarFile.StartsWith("https://")) {
     $downloadedFile = Join-Path $scriptDir "organizations" "_from_url.tfvars"
     New-Item -ItemType Directory -Path (Split-Path $downloadedFile) -Force | Out-Null
     Invoke-WebRequest -Uri $VarFile -OutFile $downloadedFile -UseBasicParsing
@@ -353,16 +338,16 @@ if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($resourceGroupName)) {
     throw "Could not retrieve resource_group_name from Terraform output."
 }
 
-# ── Step 4: Publish function code ─────────────────────────────────────────────────
+# ── Step 4: Publish function code + web app ───────────────────────────────────────
 
-& (Join-Path $scriptDir "deploy-functionupdate.ps1") -FunctionAppName $functionAppName -ResourceGroupName $resourceGroupName -FunctionProjectPath $FunctionProjectPath
+& (Join-Path $scriptDir "deploy-functionupdate.ps1") -VarFile $VarFile
 if ($LASTEXITCODE -ne 0) { throw "Function publish failed." }
 
 # Publish to staging if enabled
 $stagingFunctionAppName = terraform output -raw staging_function_app_name 2>$null
 if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($stagingFunctionAppName)) {
     Write-Host "Publishing to staging function app: $stagingFunctionAppName" -ForegroundColor Cyan
-    & (Join-Path $scriptDir "deploy-functionupdate.ps1") -FunctionAppName $stagingFunctionAppName -ResourceGroupName $resourceGroupName -FunctionProjectPath $FunctionProjectPath
+    & (Join-Path $scriptDir "deploy-functionupdate.ps1") -VarFile $VarFile -Staging
     if ($LASTEXITCODE -ne 0) { throw "Staging function publish failed." }
 }
 

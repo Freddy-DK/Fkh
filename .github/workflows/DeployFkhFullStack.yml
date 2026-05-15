@@ -110,6 +110,7 @@ jobs:
             throw "fkhDeploymentName ('$deploymentName') must contain only lowercase letters and numbers. Uppercase, hyphens, and special characters are not allowed (Azure storage accounts require this)."
           }
           $githubAppId    = Get-TfVar "github_app_id" $varFile
+          try { $githubAppClientId = Get-TfVar "github_app_client_id" $varFile } catch { $githubAppClientId = "" }
           try { $stateLocation = Get-TfVar "state_location" $varFile } catch { $stateLocation = "" }
           if (-not $stateLocation) { $stateLocation = $location }
 
@@ -129,6 +130,7 @@ jobs:
           "state_location=$stateLocation"  >> $env:GITHUB_OUTPUT
           "deployment_name=$deploymentName" >> $env:GITHUB_OUTPUT
           "github_app_id=$githubAppId"    >> $env:GITHUB_OUTPUT
+          "github_app_client_id=$githubAppClientId" >> $env:GITHUB_OUTPUT
 
           # Set ARM env vars for Terraform OIDC (used by all subsequent steps)
           "ARM_CLIENT_ID=$deployClientId"       >> $env:GITHUB_ENV
@@ -327,6 +329,30 @@ jobs:
             Pop-Location
           }
 
+      # ── Build and deploy web app ───────────────────────────────────────
+      - name: Build and deploy web app
+        shell: pwsh
+        env:
+          VITE_GITHUB_CLIENT_ID: ${{ steps.parse.outputs.github_app_client_id }}
+        run: |
+          $deployToken = terraform output -raw web_app_deployment_token 2>$null
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($deployToken)) {
+            Write-Host "Web app not enabled — skipping." -ForegroundColor Yellow
+            return
+          }
+          $webPath = Resolve-Path "../fkh-web"
+          Push-Location $webPath
+          try {
+            npm ci
+            npm run build
+            # Deploy using SWA CLI
+            npx @azure/static-web-apps-cli deploy ./dist --deployment-token $deployToken --env production
+            Write-Host "Web app deployed successfully." -ForegroundColor Green
+          }
+          finally {
+            Pop-Location
+          }
+
       # ── Sync GitHub Actions secrets ───────────────────────────────────────
       - name: Generate GitHub App token for secret sync
         id: app-token
@@ -355,6 +381,7 @@ jobs:
         shell: pwsh
         run: |
           $functionUrl   = terraform output -raw function_url
+          $webAppUrl     = terraform output -raw web_app_url 2>$null
           $clusterName   = terraform output -raw cluster_name
           $resourceGroup = terraform output -raw resource_group_name
           $acrName       = terraform output -raw acr_name
@@ -393,6 +420,7 @@ jobs:
           | Resource | Value |
           |----------|-------|
           | **Backend URL** | ``$functionUrl`` |
+          $(if ($webAppUrl) { "| **Web App** | ``$webAppUrl`` |" })
           | **AKS Cluster** | ``$clusterName`` |
           | **Resource Group** | ``$resourceGroup`` |
           | **Container Registry** | ``$acrName`` |
