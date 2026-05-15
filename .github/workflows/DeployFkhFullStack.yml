@@ -409,6 +409,22 @@ jobs:
           $adminList  = if ($adminTeams.Count -eq 0)  { '(none configured)' } else { ($adminTeams | ForEach-Object { $org, $team = $_ -split '/', 2; "[$_](https://github.com/orgs/$org/teams/$team/members)" }) -join ', ' }
 
           # Job summary (rendered as Markdown on the run summary page)
+          $webAppRow = ""
+          $qrSection = ""
+          if ($webAppUrl) {
+            $webAppRow = "| **Web App** | [$webAppUrl]($webAppUrl) |"
+            $encodedUrl = [System.Uri]::EscapeDataString($webAppUrl)
+            $qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=$encodedUrl"
+            $qrSection = @"
+
+          ### Web App QR Code
+
+          Scan to open on your phone:
+
+          ![QR Code]($qrUrl)
+          "@
+          }
+
           $summary = @"
           ## Fkh Deployment Complete
 
@@ -421,7 +437,7 @@ jobs:
           | Resource | Value |
           |----------|-------|
           | **Backend URL** | ``$functionUrl`` |
-          $(if ($webAppUrl) { "| **Web App** | ``$webAppUrl`` |" })
+          $webAppRow
           | **AKS Cluster** | ``$clusterName`` |
           | **Resource Group** | ``$resourceGroup`` |
           | **Container Registry** | ``$acrName`` |
@@ -433,7 +449,7 @@ jobs:
           |------|-------|
           | **Members** (can provision containers) | $memberList |
           | **Admins** | $adminList |
-
+          $qrSection
           "@
           $summary >> $env:GITHUB_STEP_SUMMARY
 
