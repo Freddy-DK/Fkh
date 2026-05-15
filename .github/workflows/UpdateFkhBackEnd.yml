@@ -192,6 +192,7 @@ jobs:
         working-directory: fkh/fkh-web
         env:
           VITE_GITHUB_CLIENT_ID: ${{ steps.parse.outputs.github_app_client_id }}
+          VITE_BACKEND_URL: https://fkh-${{ steps.parse.outputs.deployment_name }}-backend.azurewebsites.net/api
         run: |
           $webAppName        = "${{ steps.parse.outputs.web_app_name }}"
           $resourceGroupName = "${{ steps.parse.outputs.resource_group_name }}"

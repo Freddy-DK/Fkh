@@ -1,30 +1,21 @@
 import type { FunctionCatalogResponse, ListContainersResponse } from './types';
 
 /** Resolve the Fkh backend URL.
- *  Priority: ?backendUrl= query param > infer from current hostname.
- *  Inference: if the webapp is hosted at fkh-<org>-web.azurewebsites.net,
- *  the backend is at https://fkh-<org>-backend.azurewebsites.net/api
+ *  Priority: ?backendUrl= query param > build-time VITE_BACKEND_URL > localhost fallback.
  */
 export function resolveBackendUrl(): string {
   const params = new URLSearchParams(window.location.search);
   const explicit = params.get('backendUrl');
   if (explicit) return explicit.replace(/\/+$/, '');
 
-  // Infer from current hostname: fkh-<org>-web... → fkh-<org>-backend...
-  const host = window.location.hostname;
-  const webMatch = host.match(/^(fkh-.+?)-web/);
-  if (webMatch) {
-    return `https://${webMatch[1]}-backend.azurewebsites.net/api`;
-  }
-  // Fallback: fkh-<org>.azurewebsites.net → same pattern
-  const simpleMatch = host.match(/^(fkh-[^.]+)\.azurewebsites\.net$/);
-  if (simpleMatch) {
-    return `https://${simpleMatch[1]}-backend.azurewebsites.net/api`;
-  }
+  // Build-time default (baked in by CI/CD)
+  const buildTime = import.meta.env.VITE_BACKEND_URL;
+  if (buildTime) return buildTime.replace(/\/+$/, '');
 
-  // Local dev fallback
+  // Local dev
+  const host = window.location.hostname;
   if (host === 'localhost' || host === '127.0.0.1') {
-    return params.get('backendUrl') ?? 'http://localhost:7071/api';
+    return 'http://localhost:7071/api';
   }
 
   return '';

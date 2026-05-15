@@ -334,6 +334,7 @@ jobs:
         shell: pwsh
         env:
           VITE_GITHUB_CLIENT_ID: ${{ steps.parse.outputs.github_app_client_id }}
+          VITE_BACKEND_URL: https://fkh-${{ steps.parse.outputs.deployment_name }}-backend.azurewebsites.net/api
         run: |
           $deployToken = terraform output -raw web_app_deployment_token 2>$null
           if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($deployToken)) {
