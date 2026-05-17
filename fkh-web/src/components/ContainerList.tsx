@@ -80,7 +80,7 @@ function ContainerCard({
   const isStopped = statusLower.startsWith('stopped');
   const isStarting = statusLower.startsWith('starting') || statusLower.startsWith('pending') || statusLower.startsWith('initializing');
   const isFailed = statusLower.startsWith('failed');
-  const busy = actionInProgress === container.name;
+  const busy = actionInProgress === container.appLabel;
 
   const statusClass = isRunning ? 'status-running'
     : isStopped ? 'status-stopped'
@@ -120,12 +120,12 @@ function ContainerCard({
 
           <div className="card-actions">
             {isStopped && (
-              <button className="btn btn-sm btn-start" onClick={() => onStart(container.name)} disabled={busy}>
+              <button className="btn btn-sm btn-start" onClick={() => onStart(container.appLabel)} disabled={busy}>
                 {busy ? 'Starting...' : 'Start'}
               </button>
             )}
             {(isRunning || isStarting) && (
-              <button className="btn btn-sm btn-stop" onClick={() => onStop(container.name)} disabled={busy}>
+              <button className="btn btn-sm btn-stop" onClick={() => onStop(container.appLabel)} disabled={busy}>
                 {busy ? 'Stopping...' : 'Stop'}
               </button>
             )}

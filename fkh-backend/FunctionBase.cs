@@ -224,16 +224,8 @@ public abstract class FunctionBase
             if (string.Equals(parameter.Name, "name", StringComparison.OrdinalIgnoreCase)
                 && !string.IsNullOrWhiteSpace(value))
             {
-                if (auth.IsAdmin)
-                {
-                    if (!value.All(c => char.IsLetterOrDigit(c) || c == '-'))
-                        return Respond(req, HttpStatusCode.BadRequest, "Parameter 'name' may only contain alphanumeric characters and hyphens.");
-                }
-                else
-                {
-                    if (!value.All(char.IsLetterOrDigit))
-                        return Respond(req, HttpStatusCode.BadRequest, "Parameter 'name' may only contain alphanumeric characters (a-z, A-Z, 0-9).");
-                }
+                if (!value.All(c => char.IsLetterOrDigit(c) || c == '-'))
+                    return Respond(req, HttpStatusCode.BadRequest, "Parameter 'name' may only contain alphanumeric characters and hyphens.");
             }
 
             if (!string.IsNullOrWhiteSpace(value))
@@ -880,21 +872,10 @@ public abstract class FunctionBase
             if (string.Equals(parameter.Name, "name", StringComparison.OrdinalIgnoreCase)
                 && !string.IsNullOrWhiteSpace(value))
             {
-                if (isAdmin)
+                if (!value.All(c => char.IsLetterOrDigit(c) || c == '-'))
                 {
-                    if (!value.All(c => char.IsLetterOrDigit(c) || c == '-'))
-                    {
-                        return ParameterValidationResult.Fail(
-                            "Parameter 'name' may only contain alphanumeric characters and hyphens.");
-                    }
-                }
-                else
-                {
-                    if (!value.All(char.IsLetterOrDigit))
-                    {
-                        return ParameterValidationResult.Fail(
-                            "Parameter 'name' may only contain alphanumeric characters (a-z, A-Z, 0-9).");
-                    }
+                    return ParameterValidationResult.Fail(
+                        "Parameter 'name' may only contain alphanumeric characters and hyphens.");
                 }
             }
 
