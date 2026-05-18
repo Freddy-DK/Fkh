@@ -219,7 +219,7 @@ code {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  overflow: hidden;
+  overflow: visible;
   transition: border-color 0.15s;
 }
 .container-card:hover { border-color: var(--text-muted); }
