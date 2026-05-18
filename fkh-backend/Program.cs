@@ -18,6 +18,7 @@ var host = new HostBuilder()
         services.AddHttpClient<GitHubAppTokenService>();
 
         // Register AKS operation services
+        services.AddSingleton<AcrImageBuilder>();
         services.AddSingleton<FkhListContainers>();
         services.AddSingleton<FkhCreateContainer>();
         services.AddSingleton<FkhRemoveContainer>();

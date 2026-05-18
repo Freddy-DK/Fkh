@@ -140,6 +140,14 @@ public static class FunctionCatalog
                     Description = "Email address for Azure AD authentication. When set, the container uses AAD auth instead of NavUserPassword. Requires AAD App Registration setup — see docs/AadAuthentication.md.",
                     Required = false,
                     DefaultValue = null
+                },
+                new()
+                {
+                    Name = "forceRebuild",
+                    Type = "boolean",
+                    Description = "Force a rebuild of the image even if it already exists in ACR.",
+                    Required = false,
+                    DefaultValue = "false"
                 }
             }
         },
@@ -341,6 +349,14 @@ public static class FunctionCatalog
                     Description = "Artifact URL used to build the image.",
                     Required = true,
                     DefaultValue = null
+                },
+                new()
+                {
+                    Name = "forceRebuild",
+                    Type = "boolean",
+                    Description = "Force a rebuild of the image even if it already exists in ACR.",
+                    Required = false,
+                    DefaultValue = "false"
                 }
             }
         },

@@ -1,46 +1,30 @@
-using Azure.Containers.ContainerRegistry;
-using Azure.Identity;
-using Fkh.Models;
 using Microsoft.Extensions.Logging;
 
 namespace Fkh.Services;
 
 public class FkhCreateImage : FkhServiceBase
 {
-    private readonly GitHubAppTokenService _gitHubAppTokenService;
+    private readonly AcrImageBuilder _imageBuilder;
 
-    public FkhCreateImage(ILogger<FkhCreateImage> logger, GitHubAppTokenService gitHubAppTokenService) : base(logger)
+    public FkhCreateImage(ILogger<FkhCreateImage> logger, AcrImageBuilder imageBuilder) : base(logger)
     {
-        _gitHubAppTokenService = gitHubAppTokenService;
+        _imageBuilder = imageBuilder;
     }
 
     public async Task<object> CreateImageAsync(Dictionary<string, string> parameters)
     {
         var artifactUrl = parameters["artifactUrl"];
+        var forceRebuild = parameters.TryGetValue("forceRebuild", out var fr)
+            && string.Equals(fr, "true", StringComparison.OrdinalIgnoreCase);
 
         var imageTag = GetImageTag(artifactUrl);
         var fullImage = $"{AcrLoginServer}/{AcrRepository}:{imageTag}";
 
-        Logger.LogInformation("Checking ACR for image {Image}", fullImage);
+        Logger.LogInformation("Checking ACR for image {Image} (forceRebuild={ForceRebuild})", fullImage, forceRebuild);
 
-#pragma warning disable CS0618
-        var credential = new ManagedIdentityCredential(ClientId);
-#pragma warning restore CS0618
-        var client = new ContainerRegistryClient(new Uri($"https://{AcrLoginServer}"), credential);
+        // EnsureImageAsync returns normally if image exists, throws RetryAfterException otherwise
+        await _imageBuilder.EnsureImageAsync(imageTag, artifactUrl, forceRebuild: forceRebuild);
 
-        try
-        {
-            var artifact = client.GetArtifact(AcrRepository, imageTag);
-            await artifact.GetManifestPropertiesAsync();
-            return new { Image = fullImage, Message = "Image already exists." };
-        }
-        catch (Azure.RequestFailedException ex) when (ex.Status == 404)
-        {
-            Logger.LogInformation("Image not found in ACR. Triggering createImages workflow for {ArtifactUrl}...", artifactUrl);
-            await _gitHubAppTokenService.TriggerCreateImagesWorkflowAsync(artifactUrl);
-            throw new RetryAfterException(
-                $"Image does not exist yet: {fullImage}. The createImages workflow has been triggered. Waiting for completion...",
-                retryAfterSeconds: 300);
-        }
+        return new { Image = fullImage, Message = forceRebuild ? "Image rebuild complete." : "Image already exists." };
     }
 }
