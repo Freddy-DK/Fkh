@@ -186,7 +186,7 @@ resource "kubernetes_deployment" "mssql" {
 
           command = ["/bin/bash", "-c"]
           args = [
-            "echo 'deb [arch=amd64,armhf signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/ubuntu/22.04/mssql-server-2022 jammy main' > /etc/apt/sources.list.d/mssql-server-2022.list && apt-get update && apt-get install -y mssql-server-fts && exec /opt/mssql/bin/sqlservr"
+            "curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-mssql.gpg && echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft-mssql.gpg] https://packages.microsoft.com/ubuntu/22.04/mssql-server-2022 jammy main' > /etc/apt/sources.list.d/mssql-server-2022.list && apt-get update && apt-get install -y mssql-server-fts && exec /opt/mssql/bin/sqlservr"
           ]
 
           security_context {
