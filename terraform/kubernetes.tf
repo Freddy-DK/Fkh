@@ -134,6 +134,10 @@ resource "kubernetes_deployment" "mssql" {
   spec {
     replicas = 1
 
+    strategy {
+      type = "Recreate"
+    }
+
     selector {
       match_labels = {
         app = "mssql"
@@ -159,7 +163,7 @@ resource "kubernetes_deployment" "mssql" {
         # Init container to fix permissions on mounted volumes
         init_container {
           name  = "fix-permissions"
-          image = "mcr.microsoft.com/mssql/server:2022-latest"
+          image = "${azurerm_container_registry.this.login_server}/mssql-server-fts:2022-latest"
 
           command = ["/bin/bash", "-c", "chown -R 10001:0 /var/opt/mssql/data /var/opt/mssql/log"]
 
@@ -182,16 +186,7 @@ resource "kubernetes_deployment" "mssql" {
 
         container {
           name  = "mssql"
-          image = "mcr.microsoft.com/mssql/server:2022-latest"
-
-          command = ["/bin/bash", "-c"]
-          args = [
-            "echo 'deb [arch=amd64 trusted=yes] https://packages.microsoft.com/ubuntu/22.04/mssql-server-2022 jammy main' > /etc/apt/sources.list.d/mssql-server-2022.list && apt-get update && apt-get download mssql-server-fts && dpkg --force-depends -i mssql-server-fts*.deb && rm -f mssql-server-fts*.deb && exec su -s /bin/bash -c /opt/mssql/bin/sqlservr mssql"
-          ]
-
-          security_context {
-            run_as_user = 0
-          }
+          image = "${azurerm_container_registry.this.login_server}/mssql-server-fts:2022-latest"
 
           port {
             container_port = 1433

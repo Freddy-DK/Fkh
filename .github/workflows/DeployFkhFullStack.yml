@@ -273,6 +273,17 @@ jobs:
           AKS_NAME="fkh-${{ steps.parse.outputs.deployment_name }}-aks"
           az aks get-credentials --resource-group "$AKS_RG" --name "$AKS_NAME" --overwrite-existing
 
+      # ── Build and push MSSQL FTS image to ACR ─────────────────────────────
+      - name: Build and push MSSQL FTS image
+        shell: pwsh
+        run: |
+          $acrName = terraform output -raw acr_name
+          $acrLoginServer = terraform output -raw acr_login_server
+          az acr login --name $acrName
+          $imageTag = "$acrLoginServer/mssql-server-fts:2022-latest"
+          docker build -t $imageTag ../mssql-fts
+          docker push $imageTag
+
       # ── Full Terraform apply ──────────────────────────────────────────────
       - name: Terraform apply
         run: |
