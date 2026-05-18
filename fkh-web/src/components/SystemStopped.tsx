@@ -18,9 +18,9 @@ export function SystemStopped({ backendUrl, token, onStarted }: SystemStoppedPro
     setStatus('Starting the system...');
     try {
       await startFkh(backendUrl, token, (msg) => setStatus(msg));
-      setStatus('System started successfully!');
-      // Brief delay so user sees the success message
-      setTimeout(onStarted, 1000);
+      setStatus('System is starting — please wait while services come online...');
+      // Wait 5 minutes for the system to fully come online before redirecting
+      setTimeout(onStarted, 300_000);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to start the system');
       setStarting(false);
