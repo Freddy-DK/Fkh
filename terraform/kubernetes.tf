@@ -184,6 +184,15 @@ resource "kubernetes_deployment" "mssql" {
           name  = "mssql"
           image = "mcr.microsoft.com/mssql/server:2022-latest"
 
+          command = ["/bin/bash", "-c"]
+          args = [
+            "apt-get update && apt-get install -y mssql-server-fts && exec /opt/mssql/bin/sqlservr"
+          ]
+
+          security_context {
+            run_as_user = 0
+          }
+
           port {
             container_port = 1433
             protocol       = "TCP"
