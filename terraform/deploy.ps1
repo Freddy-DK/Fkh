@@ -305,6 +305,20 @@ Write-Host "Fetching AKS credentials for $aksName..." -ForegroundColor Cyan
 az aks get-credentials --resource-group $aksRg --name $aksName --overwrite-existing
 if ($LASTEXITCODE -ne 0) { Write-Host "Warning: could not fetch AKS credentials." -ForegroundColor Yellow }
 
+# ── Build and push MSSQL FTS image to ACR ─────────────────────────────────────
+$acrName = terraform output -raw acr_name
+$acrLoginServer = terraform output -raw acr_login_server
+if ($acrName -and $acrLoginServer) {
+    Write-Host "Building and pushing MSSQL FTS image to $acrLoginServer..." -ForegroundColor Cyan
+    az acr login --name $acrName
+    $imageTag = "$acrLoginServer/mssql-server-fts:2022-latest"
+    docker build -t $imageTag "$PSScriptRoot/../mssql-fts"
+    if ($LASTEXITCODE -ne 0) { throw "Docker build failed." }
+    docker push $imageTag
+    if ($LASTEXITCODE -ne 0) { throw "Docker push failed." }
+    Write-Host "MSSQL FTS image pushed successfully." -ForegroundColor Green
+}
+
 # ── Step 3: Full Terraform apply ──────────────────────────────────────────────
 
 Write-Host ""
