@@ -1,5 +1,13 @@
 import type { FunctionCatalogResponse, ListContainersResponse } from './types';
 
+/** Thrown when the backend returns 503 indicating the AKS cluster is stopped. */
+export class SystemStoppedError extends Error {
+  constructor(message?: string) {
+    super(message ?? 'The system is currently stopped.');
+    this.name = 'SystemStoppedError';
+  }
+}
+
 /** Resolve the Fkh backend URL.
  *  Priority: ?backendUrl= query param > build-time VITE_BACKEND_URL > localhost fallback.
  */
@@ -55,6 +63,7 @@ export async function listContainers(backendUrl: string, token: string, all: boo
   if (all) params['all'] = 'true';
 
   const res = await apiFetch(backendUrl, 'ListContainers', token, { parameters: params });
+  if (res.status === 503) throw new SystemStoppedError();
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`ListContainers failed (${res.status}): ${text}`);
@@ -83,9 +92,19 @@ export async function invokeFunction(
     res = await apiFetch(backendUrl, route, token, { parameters });
   }
 
+  if (res.status === 503) throw new SystemStoppedError();
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`${route} failed (${res.status}): ${text}`);
   }
   return (await res.json()) as Record<string, unknown>;
+}
+
+/** Start the AKS cluster. Handles 202 retry polling. */
+export async function startFkh(
+  backendUrl: string,
+  token: string,
+  onRetry?: (message: string) => void,
+): Promise<Record<string, unknown>> {
+  return invokeFunction(backendUrl, token, 'StartFkh', {}, onRetry);
 }

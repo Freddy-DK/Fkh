@@ -1,13 +1,23 @@
 import type { GitHubUser } from '../types';
+import { DropdownMenu } from './DropdownMenu';
+import type { MenuEntry } from './DropdownMenu';
 
 interface HeaderProps {
   user: GitHubUser;
   orgName: string;
   backendUrl: string;
+  onStopFkh: () => void;
   onSignOut: () => void;
 }
 
-export function Header({ user, orgName, onSignOut }: HeaderProps) {
+export function Header({ user, orgName, onStopFkh, onSignOut }: HeaderProps) {
+  const menuItems: MenuEntry[] = [
+    { label: 'Stop Fkh', onClick: onStopFkh, danger: true },
+    { separator: true },
+    { label: 'Sign out', onClick: onSignOut },
+    { label: 'Exit', onClick: () => window.close() },
+  ];
+
   return (
     <header className="app-header">
       <div className="header-left">
@@ -17,9 +27,7 @@ export function Header({ user, orgName, onSignOut }: HeaderProps) {
       <div className="header-right">
         <img src={user.avatar_url} alt={user.login} className="header-avatar" />
         <span className="header-user">{user.name ?? user.login}</span>
-        <button className="btn btn-sm btn-secondary" onClick={onSignOut}>
-          Sign out
-        </button>
+        <DropdownMenu items={menuItems} triggerClass="btn btn-sm btn-secondary" trigger="☰" />
       </div>
     </header>
   );
