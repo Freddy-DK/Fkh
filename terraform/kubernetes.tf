@@ -186,7 +186,7 @@ resource "kubernetes_deployment" "mssql" {
 
           command = ["/bin/bash", "-c"]
           args = [
-            "echo 'deb [arch=amd64 trusted=yes] https://packages.microsoft.com/ubuntu/22.04/mssql-server-2022 jammy main' > /etc/apt/sources.list.d/mssql-server-2022.list && apt-get update && apt-get download mssql-server-fts && dpkg --force-depends -i mssql-server-fts*.deb && exec /opt/mssql/bin/sqlservr"
+            "echo 'deb [arch=amd64 trusted=yes] https://packages.microsoft.com/ubuntu/22.04/mssql-server-2022 jammy main' > /etc/apt/sources.list.d/mssql-server-2022.list && apt-get update && apt-get download mssql-server-fts && dpkg --force-depends -i mssql-server-fts*.deb && rm -f mssql-server-fts*.deb && exec su -s /bin/bash -c /opt/mssql/bin/sqlservr mssql"
           ]
 
           security_context {
