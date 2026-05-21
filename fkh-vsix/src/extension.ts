@@ -181,18 +181,15 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand('fkh.startContainer', async (item: ContainerTreeItem | ProjectTreeItem) => {
       if (!item.containerInfo) { return; }
-      const name = containersProvider.showAll ? item.containerInfo.appLabel : item.containerInfo.name;
-      await invokeContainerAction('StartContainer', name);
+      await invokeContainerAction('StartContainer', item.containerInfo.appLabel);
     }),
     vscode.commands.registerCommand('fkh.stopContainer', async (item: ContainerTreeItem | ProjectTreeItem) => {
       if (!item.containerInfo) { return; }
-      const name = containersProvider.showAll ? item.containerInfo.appLabel : item.containerInfo.name;
-      await invokeContainerAction('StopContainer', name);
+      await invokeContainerAction('StopContainer', item.containerInfo.appLabel);
     }),
     vscode.commands.registerCommand('fkh.extendAutoStop', async (item: ContainerTreeItem | ProjectTreeItem) => {
       if (!item.containerInfo) { return; }
-      const name = containersProvider.showAll ? item.containerInfo.appLabel : item.containerInfo.name;
-      await invokeContainerAction('ExtendAutoStop', name);
+      await invokeContainerAction('ExtendAutoStop', item.containerInfo.appLabel);
     }),
     vscode.commands.registerCommand('fkh.setAutoStop', async (item: ContainerTreeItem | ProjectTreeItem) => {
       if (!item.containerInfo) { return; }
@@ -201,12 +198,11 @@ export function activate(context: vscode.ExtensionContext) {
         placeHolder: '2h',
       });
       if (value === undefined || value.trim() === '') { return; }
-      const name = containersProvider.showAll ? item.containerInfo.appLabel : item.containerInfo.name;
-      await invokeFunctionByName('SetAutoStop', { name, autostop: value });
+      await invokeFunctionByName('SetAutoStop', { name: item.containerInfo.appLabel, autostop: value });
     }),
     vscode.commands.registerCommand('fkh.removeContainer', async (item: ContainerTreeItem | ProjectTreeItem) => {
       if (!item.containerInfo) { return; }
-      const name = containersProvider.showAll ? item.containerInfo.appLabel : item.containerInfo.name;
+      const name = item.containerInfo.appLabel;
       const confirm = await vscode.window.showWarningMessage(
         `Are you sure you want to remove '${name}'? This will delete the container and its database.`,
         { modal: true },
@@ -217,8 +213,7 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand('fkh.waitForContainer', async (item: ContainerTreeItem | ProjectTreeItem) => {
       if (!item.containerInfo) { return; }
-      const name = containersProvider.showAll ? item.containerInfo.appLabel : item.containerInfo.name;
-      await invokeFunctionByName('WaitForContainer', { name });
+      await invokeFunctionByName('WaitForContainer', { name: item.containerInfo.appLabel });
     }),
     vscode.commands.registerCommand('fkh.run', async () => {
       const catalog = await getFunctionCatalog();

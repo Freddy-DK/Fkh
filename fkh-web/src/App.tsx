@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { GitHubUser, ContainerInfo } from './types';
 import { getStoredToken, storeToken, clearToken, validateToken } from './auth';
-import { resolveBackendUrl, getOrgNameFromUrl, listContainers, invokeFunction } from './api';
+import { resolveBackendUrl, getOrgNameFromUrl, listContainers, invokeFunction, SystemStoppedError } from './api';
 import { Login } from './components/Login.tsx';
 import { Header } from './components/Header.tsx';
 import { ContainerList } from './components/ContainerList.tsx';
+import { SystemStopped } from './components/SystemStopped.tsx';
 
 /** Read clientId: ?clientId= query param overrides the build-time default. */
 function getClientId(): string {
@@ -26,6 +27,7 @@ export function App() {
   const [containersError, setContainersError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+  const [systemStopped, setSystemStopped] = useState(false);
 
   // Check for existing token on mount
   useEffect(() => {
@@ -72,9 +74,14 @@ export function App() {
     setContainersError(null);
     try {
       const result = await listContainers(backendUrl, token, all ?? showAll);
+      setSystemStopped(false);
       setContainers(result.containers ?? []);
     } catch (e) {
-      setContainersError(e instanceof Error ? e.message : 'Failed to load containers');
+      if (e instanceof SystemStoppedError) {
+        setSystemStopped(true);
+      } else {
+        setContainersError(e instanceof Error ? e.message : 'Failed to load containers');
+      }
       setContainers([]);
     } finally {
       setContainersLoading(false);
@@ -111,7 +118,11 @@ export function App() {
       await invokeFunction(backendUrl, token, 'StartContainer', { name });
       await fetchContainers();
     } catch (e) {
-      setContainersError(e instanceof Error ? e.message : 'Start failed');
+      if (e instanceof SystemStoppedError) {
+        setSystemStopped(true);
+      } else {
+        setContainersError(e instanceof Error ? e.message : 'Start failed');
+      }
     } finally {
       setActionInProgress(null);
     }
@@ -124,11 +135,30 @@ export function App() {
       await invokeFunction(backendUrl, token, 'StopContainer', { name });
       await fetchContainers();
     } catch (e) {
-      setContainersError(e instanceof Error ? e.message : 'Stop failed');
+      if (e instanceof SystemStoppedError) {
+        setSystemStopped(true);
+      } else {
+        setContainersError(e instanceof Error ? e.message : 'Stop failed');
+      }
     } finally {
       setActionInProgress(null);
     }
   }, [token, backendUrl, fetchContainers]);
+
+  const handleStopFkh = useCallback(async () => {
+    if (!token || !backendUrl) return;
+    if (!window.confirm('Are you sure you want to stop the entire Fkh system? All containers will become unavailable.')) return;
+    try {
+      await invokeFunction(backendUrl, token, 'StopFkh', {});
+      setSystemStopped(true);
+    } catch (e) {
+      if (e instanceof SystemStoppedError) {
+        setSystemStopped(true);
+      } else {
+        setContainersError(e instanceof Error ? e.message : 'Stop Fkh failed');
+      }
+    }
+  }, [token, backendUrl]);
 
   // Loading spinner while checking stored token
   if (checking) {
@@ -158,9 +188,28 @@ export function App() {
     );
   }
 
+  // System is stopped — show start page
+  if (systemStopped) {
+    return (
+      <div className="app">
+        <Header user={user} orgName={orgName} backendUrl={backendUrl} onStopFkh={handleStopFkh} onSignOut={handleSignOut} />
+        <main className="app-main">
+          <SystemStopped
+            backendUrl={backendUrl}
+            token={token}
+            onStarted={() => {
+              setSystemStopped(false);
+              fetchContainers();
+            }}
+          />
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="app">
-      <Header user={user} orgName={orgName} backendUrl={backendUrl} onSignOut={handleSignOut} />
+      <Header user={user} orgName={orgName} backendUrl={backendUrl} onStopFkh={handleStopFkh} onSignOut={handleSignOut} />
       <main className="app-main">
         <ContainerList
           containers={containers}

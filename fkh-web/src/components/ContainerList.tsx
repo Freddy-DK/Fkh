@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import type { ContainerInfo } from '../types';
+import { DropdownMenu } from './DropdownMenu';
+import type { MenuEntry } from './DropdownMenu';
 
 interface ContainerListProps {
   containers: ContainerInfo[];
@@ -80,7 +82,7 @@ function ContainerCard({
   const isStopped = statusLower.startsWith('stopped');
   const isStarting = statusLower.startsWith('starting') || statusLower.startsWith('pending') || statusLower.startsWith('initializing');
   const isFailed = statusLower.startsWith('failed');
-  const busy = actionInProgress === container.name;
+  const busy = actionInProgress === container.appLabel;
 
   const statusClass = isRunning ? 'status-running'
     : isStopped ? 'status-stopped'
@@ -95,6 +97,14 @@ function ContainerCard({
           <span className={`status-dot ${statusClass}`} />
           <span className="card-name">{showLabel ? container.appLabel : container.name}</span>
           <span className="card-status">{container.status}</span>
+          <ContainerMenu
+            container={container}
+            isRunning={isRunning}
+            isStopped={isStopped}
+            busy={busy}
+            onStart={onStart}
+            onStop={onStop}
+          />
           <span className={`expand-icon ${expanded ? 'expanded' : ''}`}>▸</span>
         </div>
       </div>
@@ -117,23 +127,33 @@ function ContainerCard({
             </div>
           )}
           {container.memory && <DetailRow icon="💾" label="Memory" value={container.memory} />}
-
-          <div className="card-actions">
-            {isStopped && (
-              <button className="btn btn-sm btn-start" onClick={() => onStart(container.name)} disabled={busy}>
-                {busy ? 'Starting...' : 'Start'}
-              </button>
-            )}
-            {(isRunning || isStarting) && (
-              <button className="btn btn-sm btn-stop" onClick={() => onStop(container.name)} disabled={busy}>
-                {busy ? 'Stopping...' : 'Stop'}
-              </button>
-            )}
-          </div>
         </div>
       )}
     </div>
   );
+}
+
+function ContainerMenu({
+  container,
+  isRunning,
+  isStopped,
+  busy,
+  onStart,
+  onStop,
+}: {
+  container: ContainerInfo;
+  isRunning: boolean;
+  isStopped: boolean;
+  busy: boolean;
+  onStart: (name: string) => void;
+  onStop: (name: string) => void;
+}) {
+  const items: MenuEntry[] = [
+    { label: 'Start', onClick: () => onStart(container.appLabel), disabled: busy || isRunning },
+    { label: 'Stop', onClick: () => onStop(container.appLabel), disabled: busy || isStopped },
+  ];
+
+  return <DropdownMenu items={items} triggerClass="btn btn-sm btn-secondary" />;
 }
 
 function DetailRow({ icon, label, value }: { icon: string; label: string; value: string }) {
