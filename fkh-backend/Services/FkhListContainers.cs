@@ -130,7 +130,11 @@ public class FkhListContainers : FkhServiceBase
                         container: pod.Spec.Containers[0].Name);
                     using var reader = new StreamReader(stream);
                     var logs = await reader.ReadToEndAsync();
-                    if (!logs.Contains("Ready for connections!"))
+                    if (logs.Contains("CONTAINER STARTUP FAILED"))
+                    {
+                        status = "Failed";
+                    }
+                    else if (!logs.Contains("Ready for connections!"))
                     {
                         status = "Initializing";
                     }

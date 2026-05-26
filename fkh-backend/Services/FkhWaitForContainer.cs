@@ -85,6 +85,11 @@ public class FkhWaitForContainer : FkhServiceBase
                 using var reader = new StreamReader(stream);
                 var logs = await reader.ReadToEndAsync();
 
+                if (logs.Contains("CONTAINER STARTUP FAILED"))
+                {
+                    throw new InvalidOperationException($"Container '{name}' failed to start. Use GetContainerLog to see details. Container will remain alive for troubleshooting — remove it when done.");
+                }
+
                 if (!logs.Contains("Ready for connections!"))
                 {
                     throw new RetryAfterException($"Container '{name}' is initializing — waiting for BC to be ready.", 5);

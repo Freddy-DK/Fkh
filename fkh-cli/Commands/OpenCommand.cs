@@ -214,6 +214,8 @@ sealed class OpenCommand : ClientCommand
             return true;
 
         var host = uri.Host; // e.g. fkh-contoso-backend.azurewebsites.net
+        // Strip staging suffix so both prod and staging URLs resolve to the same cluster
+        host = host.Replace("-backend-staging.", "-backend.");
         const string prefix = "fkh-";
         const string suffix = "-backend.azurewebsites.net";
         if (!host.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ||

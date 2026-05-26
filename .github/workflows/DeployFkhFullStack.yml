@@ -110,6 +110,7 @@ jobs:
             throw "fkhDeploymentName ('$deploymentName') must contain only lowercase letters and numbers. Uppercase, hyphens, and special characters are not allowed (Azure storage accounts require this)."
           }
           $githubAppId    = Get-TfVar "github_app_id" $varFile
+          try { $githubAppClientId = Get-TfVar "github_app_client_id" $varFile } catch { $githubAppClientId = "" }
           try { $stateLocation = Get-TfVar "state_location" $varFile } catch { $stateLocation = "" }
           if (-not $stateLocation) { $stateLocation = $location }
 
@@ -129,6 +130,7 @@ jobs:
           "state_location=$stateLocation"  >> $env:GITHUB_OUTPUT
           "deployment_name=$deploymentName" >> $env:GITHUB_OUTPUT
           "github_app_id=$githubAppId"    >> $env:GITHUB_OUTPUT
+          "github_app_client_id=$githubAppClientId" >> $env:GITHUB_OUTPUT
 
           # Set ARM env vars for Terraform OIDC (used by all subsequent steps)
           "ARM_CLIENT_ID=$deployClientId"       >> $env:GITHUB_ENV
@@ -271,6 +273,17 @@ jobs:
           AKS_NAME="fkh-${{ steps.parse.outputs.deployment_name }}-aks"
           az aks get-credentials --resource-group "$AKS_RG" --name "$AKS_NAME" --overwrite-existing
 
+      # ── Build and push MSSQL FTS image to ACR ─────────────────────────────
+      - name: Build and push MSSQL FTS image
+        shell: pwsh
+        run: |
+          $acrName = terraform output -raw acr_name
+          $acrLoginServer = terraform output -raw acr_login_server
+          az acr login --name $acrName
+          $imageTag = "$acrLoginServer/mssql-server-fts:2022-latest"
+          docker build -t $imageTag ../mssql-fts
+          docker push $imageTag
+
       # ── Full Terraform apply ──────────────────────────────────────────────
       - name: Terraform apply
         run: |
@@ -296,6 +309,57 @@ jobs:
               throw "func publish failed (build errors). Function app was restarted but new code was NOT deployed."
             }
             Write-Host "Function app $functionAppName published successfully." -ForegroundColor Green
+          }
+          finally {
+            Pop-Location
+          }
+
+      - name: Publish Azure Function (staging)
+        shell: pwsh
+        run: |
+          $stagingAppName = terraform output -raw staging_function_app_name 2>$null
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($stagingAppName)) {
+            Write-Host "Staging backend not enabled — skipping." -ForegroundColor Yellow
+            return
+          }
+          $resourceGroupName = terraform output -raw resource_group_name
+          $projectPath       = Resolve-Path "../fkh-backend"
+
+          Push-Location $projectPath
+          try {
+            func azure functionapp publish $stagingAppName --dotnet-isolated
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "func publish (staging) exited with code $LASTEXITCODE — restarting..." -ForegroundColor Yellow
+              az functionapp restart --name $stagingAppName --resource-group $resourceGroupName
+              if ($LASTEXITCODE -ne 0) { throw "Staging func publish and fallback restart both failed." }
+              throw "Staging func publish failed. Function app was restarted but new code was NOT deployed."
+            }
+            Write-Host "Staging function app $stagingAppName published successfully." -ForegroundColor Green
+          }
+          finally {
+            Pop-Location
+          }
+
+      # ── Build and deploy web app ───────────────────────────────────────
+      - name: Build and deploy web app
+        shell: pwsh
+        env:
+          VITE_GITHUB_CLIENT_ID: ${{ steps.parse.outputs.github_app_client_id }}
+          VITE_BACKEND_URL: https://fkh-${{ steps.parse.outputs.deployment_name }}-backend.azurewebsites.net/api
+        run: |
+          $deployToken = terraform output -raw web_app_deployment_token 2>$null
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($deployToken)) {
+            Write-Host "Web app not enabled — skipping." -ForegroundColor Yellow
+            return
+          }
+          $webPath = Resolve-Path "../fkh-web"
+          Push-Location $webPath
+          try {
+            npm ci
+            npm run build
+            # Deploy using SWA CLI
+            npx @azure/static-web-apps-cli deploy ./dist --deployment-token $deployToken --env production
+            Write-Host "Web app deployed successfully." -ForegroundColor Green
           }
           finally {
             Pop-Location
@@ -329,6 +393,7 @@ jobs:
         shell: pwsh
         run: |
           $functionUrl   = terraform output -raw function_url
+          $webAppUrl     = terraform output -raw web_app_url 2>$null
           $clusterName   = terraform output -raw cluster_name
           $resourceGroup = terraform output -raw resource_group_name
           $acrName       = terraform output -raw acr_name
@@ -355,6 +420,22 @@ jobs:
           $adminList  = if ($adminTeams.Count -eq 0)  { '(none configured)' } else { ($adminTeams | ForEach-Object { $org, $team = $_ -split '/', 2; "[$_](https://github.com/orgs/$org/teams/$team/members)" }) -join ', ' }
 
           # Job summary (rendered as Markdown on the run summary page)
+          $webAppRow = ""
+          $qrSection = ""
+          if ($webAppUrl) {
+            $webAppRow = "| **Web App** | [$webAppUrl]($webAppUrl) |"
+            $encodedUrl = [System.Uri]::EscapeDataString($webAppUrl)
+            $qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=$encodedUrl"
+            $qrSection = @"
+
+          ### Web App QR Code
+
+          Scan to open on your phone:
+
+          ![QR Code]($qrUrl)
+          "@
+          }
+
           $summary = @"
           ## Fkh Deployment Complete
 
@@ -367,6 +448,7 @@ jobs:
           | Resource | Value |
           |----------|-------|
           | **Backend URL** | ``$functionUrl`` |
+          $webAppRow
           | **AKS Cluster** | ``$clusterName`` |
           | **Resource Group** | ``$resourceGroup`` |
           | **Container Registry** | ``$acrName`` |
@@ -378,7 +460,7 @@ jobs:
           |------|-------|
           | **Members** (can provision containers) | $memberList |
           | **Admins** | $adminList |
-
+          $qrSection
           "@
           $summary >> $env:GITHUB_STEP_SUMMARY
 

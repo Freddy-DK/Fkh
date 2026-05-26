@@ -299,7 +299,7 @@ public static class FunctionCatalog
                     Name = "ip",
                     Type = "string",
                     Description = "Your public IP address (e.g. 203.0.113.10). VSIX and CLI auto-detect this.",
-                    Required = true,
+                    Required = false,
                     DefaultValue = null
                 },
                 new()
@@ -423,14 +423,6 @@ public static class FunctionCatalog
                     Description = "Number of lines to retrieve from the end of the log.",
                     Required = false,
                     DefaultValue = "500"
-                },
-                new()
-                {
-                    Name = "previous",
-                    Type = "boolean",
-                    Description = "Get logs from the previous (crashed) container instance instead of the current one.",
-                    Required = false,
-                    DefaultValue = "false"
                 }
             }
         },
@@ -1106,6 +1098,39 @@ public static class FunctionCatalog
                     Description = "Environment type for the tenant (e.g. 'Production', 'Sandbox'). If omitted, uses the server's default.",
                     Required = false,
                     DefaultValue = null
+                }
+            }
+        },
+        new FunctionDefinition
+        {
+            Name = "ConvertToSingleTenant",
+            Description = "Converts a multitenant container to single-tenant by backing up both databases to a local SQL Server Express instance inside the BC pod, using Export-NAVApplication to merge the app database into the tenant database, then restoring the merged database back to the Linux SQL pod as the single database.",
+            Route = "ConvertToSingleTenant",
+            Parameters = new List<FunctionParameterDefinition>
+            {
+                new()
+                {
+                    Name = "name",
+                    Type = "string",
+                    Description = "Name of the container to convert to single-tenant.",
+                    Required = true,
+                    DefaultValue = null
+                },
+                new()
+                {
+                    Name = "tenant",
+                    Type = "string",
+                    Description = "Tenant whose database will become the single-tenant database.",
+                    Required = false,
+                    DefaultValue = "default"
+                },
+                new()
+                {
+                    Name = "doNotRestart",
+                    Type = "boolean",
+                    Description = "If set, the service tier will not be restarted after the conversion.",
+                    Required = false,
+                    DefaultValue = "false"
                 }
             }
         }

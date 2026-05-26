@@ -32,6 +32,7 @@ sealed class StatusCommand : ClientCommand
         using var httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
         var request = new HttpRequestMessage(HttpMethod.Post, $"{backendUrl}/Status");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        AddProtocolHeaders(request);
         request.Content = new StringContent(
             JsonSerializer.Serialize(new FunctionInvokeRequest
             {

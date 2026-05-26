@@ -62,6 +62,7 @@ sealed class UploadDatabaseCommand : ClientCommand
         {
             var sasRequest = new HttpRequestMessage(HttpMethod.Post, $"{backendUrl}/GetDatabaseUploadSas");
             sasRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            AddProtocolHeaders(sasRequest);
             sasRequest.Content = new StringContent(
                 JsonSerializer.Serialize(new FunctionInvokeRequest
                 {

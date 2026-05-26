@@ -4,7 +4,7 @@ resource "azurerm_container_registry" "this" {
   name                = "${local.product_prefix}${local.storage_account_org_id}acr"
   resource_group_name = azurerm_resource_group.this.name
   location            = azurerm_resource_group.this.location
-  sku                 = "Basic"
+  sku                 = var.acr_sku
   admin_enabled       = false
 
   tags = azurerm_resource_group.this.tags

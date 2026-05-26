@@ -130,7 +130,7 @@ These are required for the CLI or VS Code extension to function at all. **Do not
 #### CLI (`fkh-cli`)
 - **.NET 8.0 runtime** — the CLI targets `net8.0`
 - **GitHub authentication** — one of the following must be available (checked in order):
-  1. `OIDC_TOKEN` environment variable (GitHub Actions)
+  1. `--useOIDC` (GitHub Actions OIDC)
   2. `GH_TOKEN` environment variable (PAT)
   3. `gh auth token` (requires `gh` CLI installed and authenticated)
 - **Backend URL** — resolved in order:

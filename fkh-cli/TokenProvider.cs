@@ -4,16 +4,14 @@ using System.Text.Json;
 /// <summary>
 /// Provides a uniform way to obtain and refresh authentication tokens.
 /// When --useOIDC is specified, fetches the token from GitHub Actions OIDC endpoint
-/// and automatically refreshes it every 3 minutes. When --oidcToken is specified,
-/// uses that token exclusively with no fallback. Otherwise falls back to the
-/// standard token resolution chain (OIDC_TOKEN, GH_TOKEN, gh auth token).
+/// and automatically refreshes it every 3 minutes. Otherwise falls back to the
+/// standard token resolution chain (GH_TOKEN, gh auth token).
 /// </summary>
 sealed class TokenProvider
 {
     private static readonly TimeSpan OidcRefreshInterval = TimeSpan.FromMinutes(3);
 
     private readonly bool _useOidc;
-    private readonly string? _explicitOidcToken;
     private readonly string? _ghUser;
 
     private string? _cachedToken;
@@ -23,19 +21,16 @@ sealed class TokenProvider
     /// Creates a TokenProvider.
     /// </summary>
     /// <param name="useOidc">If true, fetches OIDC token from GitHub Actions environment and skips all other mechanisms.</param>
-    /// <param name="explicitOidcToken">An explicit OIDC token passed via --oidcToken (only used when useOidc is false).</param>
     /// <param name="ghUser">GitHub user for gh auth token (only used when useOidc is false).</param>
-    public TokenProvider(bool useOidc, string? explicitOidcToken = null, string? ghUser = null)
+    public TokenProvider(bool useOidc, string? ghUser = null)
     {
         _useOidc = useOidc;
-        _explicitOidcToken = explicitOidcToken;
         _ghUser = ghUser;
     }
 
     /// <summary>
     /// Gets a valid token. If --useOIDC is active and the cached token is older than 3 minutes,
-    /// fetches a fresh one. If --oidcToken is specified, uses that exclusively.
-    /// For non-OIDC modes, returns the same token every time.
+    /// fetches a fresh one. For non-OIDC modes, returns the same token every time.
     /// </summary>
     public async Task<string> GetTokenAsync()
     {
@@ -48,10 +43,6 @@ sealed class TokenProvider
             }
             return _cachedToken;
         }
-
-        // --oidcToken is exclusive: use it directly, no fallback
-        if (!string.IsNullOrWhiteSpace(_explicitOidcToken))
-            return _explicitOidcToken;
 
         // Non-OIDC: resolve once and cache
         _cachedToken ??= ResolveStaticToken();
@@ -73,10 +64,6 @@ sealed class TokenProvider
             }
             return _cachedToken;
         }
-
-        // --oidcToken is exclusive: use it directly, no fallback
-        if (!string.IsNullOrWhiteSpace(_explicitOidcToken))
-            return _explicitOidcToken;
 
         _cachedToken ??= ResolveStaticToken();
         return _cachedToken;
@@ -125,17 +112,12 @@ sealed class TokenProvider
 
     private string ResolveStaticToken()
     {
-        // 1. OIDC_TOKEN environment variable
-        var token = Environment.GetEnvironmentVariable("OIDC_TOKEN");
+        // 1. GH_TOKEN environment variable
+        var token = Environment.GetEnvironmentVariable("GH_TOKEN");
         if (!string.IsNullOrWhiteSpace(token))
             return token;
 
-        // 2. GH_TOKEN environment variable
-        token = Environment.GetEnvironmentVariable("GH_TOKEN");
-        if (!string.IsNullOrWhiteSpace(token))
-            return token;
-
-        // 3. gh auth token CLI
+        // 2. gh auth token CLI
         var psi = new ProcessStartInfo
         {
             FileName = "gh",

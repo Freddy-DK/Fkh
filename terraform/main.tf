@@ -48,6 +48,12 @@ locals {
   function_identity_name = "${local.product_prefix}-${var.fkhDeploymentName}-identity"
   function_storage_name  = "${local.product_prefix}${local.storage_account_org_id}func"
   dbs_storage_name       = "${local.product_prefix}${local.storage_account_org_id}dbs"
+
+  # CORS origins for the Function App — includes the Static Web App URL when enabled, plus localhost for development
+  cors_origins = concat(
+    var.enable_web_app ? ["https://${azurerm_static_web_app.web[0].default_host_name}"] : [],
+    ["http://localhost:5173"]
+  )
 }
 
 # ============================================================================

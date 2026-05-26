@@ -54,6 +54,7 @@ sealed class CopyFromContainerCommand : ClientCommand
         using var httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
         var request = new HttpRequestMessage(HttpMethod.Post, $"{backendUrl}/CopyFileFromContainer");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        AddProtocolHeaders(request);
         request.Content = new StringContent(
             JsonSerializer.Serialize(new FunctionInvokeRequest
             {

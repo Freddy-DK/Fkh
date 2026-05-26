@@ -33,6 +33,16 @@ output "function_url" {
   value       = "https://${azurerm_windows_function_app.this.default_hostname}/api"
 }
 
+output "staging_function_app_name" {
+  description = "Name of the staging Function App (empty if staging is disabled)."
+  value       = var.enable_staging_backend ? azurerm_windows_function_app.staging[0].name : ""
+}
+
+output "staging_function_url" {
+  description = "Base URL of the staging Function App (empty if staging is disabled)."
+  value       = var.enable_staging_backend ? "https://${azurerm_windows_function_app.staging[0].default_hostname}/api" : ""
+}
+
 output "acr_login_server" {
   description = "ACR login server for docker login."
   value       = azurerm_container_registry.this.login_server
@@ -71,4 +81,15 @@ output "acr_name" {
 output "dbs_storage_account_name" {
   description = "Name of the storage account for database backups."
   value       = azurerm_storage_account.dbs.name
+}
+
+output "web_app_url" {
+  description = "URL of the Fkh web app (empty if web app is disabled)."
+  value       = var.enable_web_app ? "https://${azurerm_static_web_app.web[0].default_host_name}" : ""
+}
+
+output "web_app_deployment_token" {
+  description = "Deployment token for the Static Web App (used in CI/CD to deploy the built files). Empty if web app is disabled."
+  value       = var.enable_web_app ? azurerm_static_web_app.web[0].api_key : ""
+  sensitive   = true
 }

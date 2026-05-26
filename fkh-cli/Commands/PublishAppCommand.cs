@@ -11,7 +11,9 @@ sealed class PublishAppCommand : ClientCommand
         new() { Name = "name", Type = "string", Description = "Name of the container.", Required = true },
         new() { Name = "appFile", Type = "file", Description = "Path to the .app file to publish.", Required = true },
         new() { Name = "syncMode", Type = "string", Description = "Sync mode: Add, ForceSync, Clean, Development (default: Add).", Required = false },
-        new() { Name = "devScope", Type = "boolean", Description = "Publish to dev/tenant scope using the dev endpoint (like VS Code).", Required = false }
+        new() { Name = "devScope", Type = "boolean", Description = "Publish to dev/tenant scope using the dev endpoint (like VS Code).", Required = false },
+        new() { Name = "sync", Type = "boolean", Description = "Run Sync-NAVApp after publishing (implied by --install).", Required = false },
+        new() { Name = "install", Type = "boolean", Description = "Run Sync-NAVApp and Install/Upgrade after publishing.", Required = false }
     ];
 
     // Path inside the container for the app file
@@ -51,6 +53,10 @@ sealed class PublishAppCommand : ClientCommand
         var syncMode = parameters.TryGetValue("syncMode", out var sm) ? sm : "Add";
         var devScope = parameters.TryGetValue("devScope", out var ds)
             && string.Equals(ds, "true", StringComparison.OrdinalIgnoreCase);
+        var installFlag = parameters.TryGetValue("install", out var inst)
+            && string.Equals(inst, "true", StringComparison.OrdinalIgnoreCase);
+        var syncFlag = parameters.TryGetValue("sync", out var sy)
+            && string.Equals(sy, "true", StringComparison.OrdinalIgnoreCase);
 
         var backendUrl = ValidateBackendUrl(settings.BackendUrl);
         if (backendUrl is null)
@@ -117,7 +123,7 @@ sealed class PublishAppCommand : ClientCommand
         if (!asJson)
             Console.WriteLine($"{Ansi.Dim}Publishing app in container '{containerName}'...{Ansi.Reset}");
 
-        var scriptContent = BuildPublishScript(syncMode);
+        var scriptContent = BuildPublishScript(syncMode, syncFlag || installFlag, installFlag);
         var result = await InvokeScriptAsync(httpClient, backendUrl, tokenProvider, containerName, scriptContent, asJson);
 
         if (result.ExitCode != 0)
@@ -143,13 +149,16 @@ sealed class PublishAppCommand : ClientCommand
         return 0;
     }
 
-    private static string BuildPublishScript(string syncMode)
+    private static string BuildPublishScript(string syncMode, bool doSync, bool doInstall)
     {
         return $@"
 $ErrorActionPreference = 'Stop'
 $appPath = '{AppDestPath}'
 $serverInstance = 'BC'
 $tenant = 'default'
+$syncMode = '{syncMode}'
+$doSync = {(doSync ? "$true" : "$false")}
+$doInstall = {(doInstall ? "$true" : "$false")}
 
 $appInfo = Get-NAVAppInfo -Path $appPath
 Write-Host ('Publishing app: ' + $appInfo.Name + ' v' + $appInfo.Version)
@@ -157,18 +166,24 @@ Write-Host ('Publishing app: ' + $appInfo.Name + ' v' + $appInfo.Version)
 Publish-NAVApp -ServerInstance $serverInstance -Path $appPath -SkipVerification
 Write-Host 'Publish-NAVApp completed'
 
-Sync-NAVApp -ServerInstance $serverInstance -Name $appInfo.Name -Version $appInfo.Version -Tenant $tenant -Mode {syncMode} -Force
-Write-Host 'Sync-NAVApp completed'
-
-$existingApp = Get-NAVAppInfo -ServerInstance $serverInstance -Tenant $tenant -Id $appInfo.AppId -TenantSpecificProperties | Where-Object {{ $_.IsInstalled -eq $true }}
-if ($existingApp) {{
-    Write-Host ('Upgrading from v' + $existingApp.Version)
-    Start-NAVAppDataUpgrade -ServerInstance $serverInstance -Name $appInfo.Name -Version $appInfo.Version -Tenant $tenant
-}} else {{
-    Write-Host 'Installing app'
-    Install-NAVApp -ServerInstance $serverInstance -Name $appInfo.Name -Version $appInfo.Version -Tenant $tenant
+if ($doSync -or $doIInstall) {{
+    Sync-NAVApp -ServerInstance $serverInstance -Name $appInfo.Name -Version $appInfo.Version -Tenant $tenant -Mode $syncMode -Force
+    Write-Host 'Sync-NAVApp completed'
 }}
-Write-Host 'Install/Upgrade completed'
+
+if ($doInstall) {{
+    $existingApp = Get-NAVAppInfo -ServerInstance $serverInstance -Tenant $tenant -Id $appInfo.AppId -TenantSpecificProperties | Where-Object {{ $_.IsInstalled -eq $true }}
+    if ($existingApp -and $existingApp.Version -eq $appInfo.Version) {{
+        Write-Host ('App ' + $appInfo.Name + ' v' + $appInfo.Version + ' is already installed, skipping install/upgrade')
+    }} elseif ($existingApp) {{
+        Write-Host ('Upgrading from v' + $existingApp.Version)
+        Start-NAVAppDataUpgrade -ServerInstance $serverInstance -Name $appInfo.Name -Version $appInfo.Version -Tenant $tenant
+    }} else {{
+        Write-Host 'Installing app'
+        Install-NAVApp -ServerInstance $serverInstance -Name $appInfo.Name -Version $appInfo.Version -Tenant $tenant
+    }}
+    Write-Host 'Install/Upgrade completed'
+}}
 
 Remove-Item -Path $appPath -Force -ErrorAction SilentlyContinue
 
@@ -180,6 +195,7 @@ $appInfo | Select-Object Name, Publisher, @{{N='Version';E={{$_.Version.ToString
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{backendUrl}/CopyFileToContainer");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        AddProtocolHeaders(request);
 
         var multipart = new MultipartFormDataContent();
         var paramsDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -222,6 +238,7 @@ $appInfo | Select-Object Name, Publisher, @{{N='Version';E={{$_.Version.ToString
             {
                 using var request = new HttpRequestMessage(HttpMethod.Post, $"{backendUrl}/InvokeScript");
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                AddProtocolHeaders(request);
                 request.Content = new StringContent(
                     JsonSerializer.Serialize(new FunctionInvokeRequest
                     {
@@ -378,6 +395,7 @@ $appInfo | Select-Object Name, Publisher, @{{N='Version';E={{$_.Version.ToString
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, $"{backendUrl}/GetContainerDetails");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            AddProtocolHeaders(request);
             request.Content = new StringContent(
                 JsonSerializer.Serialize(new FunctionInvokeRequest
                 {

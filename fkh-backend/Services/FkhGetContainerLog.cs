@@ -42,15 +42,12 @@ public class FkhGetContainerLog : FkhServiceBase
         }
 
         var tailLines = parameters.TryGetValue("tail", out var tailValue) && int.TryParse(tailValue, out var t) ? t : 500;
-        var previous = parameters.TryGetValue("previous", out var prevValue)
-            && string.Equals(prevValue, "true", StringComparison.OrdinalIgnoreCase);
 
         var stream = await client.ReadNamespacedPodLogAsync(
             pod.Metadata.Name,
             Namespace,
             container: pod.Spec.Containers[0].Name,
-            tailLines: tailLines,
-            previous: previous);
+            tailLines: tailLines);
 
         using var reader = new StreamReader(stream);
         return new { Logs = await reader.ReadToEndAsync() };

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { getProjects } from './readALGoSettings';
+import { getProtocolHeaders } from './protocol';
 
 // ── AL-Go Projects tree ──────────────────────────────────────────────────────
 
@@ -267,6 +268,7 @@ export class ContainersTreeProvider implements vscode.TreeDataProvider<Container
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session.accessToken}`,
+          ...getProtocolHeaders(),
         },
         body: JSON.stringify({ parameters: { _timezone: vscode.workspace.getConfiguration('fkh').get<string>('timezone', '').trim()
           || Intl.DateTimeFormat().resolvedOptions().timeZone, ...(showAll ? { all: 'true' } : {}) } }),
@@ -382,6 +384,7 @@ export class ImagesTreeProvider implements vscode.TreeDataProvider<ImageTreeItem
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session.accessToken}`,
+          ...getProtocolHeaders(),
         },
         body: JSON.stringify({ parameters: {} }),
       });
@@ -572,6 +575,7 @@ export class VMsTreeProvider implements vscode.TreeDataProvider<VMTreeItem> {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session.accessToken}`,
+          ...getProtocolHeaders(),
         },
         body: JSON.stringify({ parameters: {} }),
       });

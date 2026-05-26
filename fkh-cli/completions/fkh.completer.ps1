@@ -42,7 +42,6 @@ Register-ArgumentCompleter -CommandName fkh -Native -ScriptBlock {
     $globalOptions = @(
         @{ Name = '--backendUrl';  Desc = 'Override the backend URL' }
         @{ Name = '--ghUser';      Desc = 'GitHub user for gh auth' }
-        @{ Name = '--oidcToken';   Desc = 'GitHub Actions OIDC token' }
         @{ Name = '--nowait';      Desc = "Don't wait for completion" }
         @{ Name = '--asJson';      Desc = 'Output result as JSON' }
         @{ Name = '--output';      Desc = 'Save binary output to file' }

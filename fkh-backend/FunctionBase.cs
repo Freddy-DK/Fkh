@@ -224,16 +224,8 @@ public abstract class FunctionBase
             if (string.Equals(parameter.Name, "name", StringComparison.OrdinalIgnoreCase)
                 && !string.IsNullOrWhiteSpace(value))
             {
-                if (auth.IsAdmin)
-                {
-                    if (!value.All(c => char.IsLetterOrDigit(c) || c == '-'))
-                        return Respond(req, HttpStatusCode.BadRequest, "Parameter 'name' may only contain alphanumeric characters and hyphens.");
-                }
-                else
-                {
-                    if (!value.All(char.IsLetterOrDigit))
-                        return Respond(req, HttpStatusCode.BadRequest, "Parameter 'name' may only contain alphanumeric characters (a-z, A-Z, 0-9).");
-                }
+                if (!value.All(c => char.IsLetterOrDigit(c) || c == '-'))
+                    return Respond(req, HttpStatusCode.BadRequest, "Parameter 'name' may only contain alphanumeric characters and hyphens.");
             }
 
             if (!string.IsNullOrWhiteSpace(value))
@@ -427,6 +419,61 @@ public abstract class FunctionBase
             () => aksOperation(parametersResult.Parameters!));
     }
 
+    /// <summary>
+    /// Like <see cref="ExecuteAsync"/> but fires the operation on a background thread
+    /// and returns HTTP 202 immediately. The operation continues running in-process
+    /// up to the Azure Functions timeout. Errors are logged but not returned to the caller.
+    /// </summary>
+    protected async Task<HttpResponseData> ExecuteFireAndForgetAsync(
+        HttpRequestData req,
+        ILogger logger,
+        GitHubAuthService gitHub,
+        string operationName,
+        Func<Dictionary<string, string>, Task<object>> aksOperation)
+    {
+        var (auth, errorResponse) = await AuthenticateAndAuthorizeAsync(req, logger, gitHub, operationName);
+        if (errorResponse is not null) return errorResponse;
+
+        var clusterError = await CheckClusterRunningAsync(req, logger);
+        if (clusterError is not null) return clusterError;
+
+        var parametersResult = await ParseAndValidateParametersAsync(req, auth!.Function, auth.IsAdmin);
+        if (!parametersResult.Success)
+            return Respond(req, HttpStatusCode.BadRequest, parametersResult.ErrorMessage!);
+
+        ClearFailedAttempts(auth.ClientIp);
+
+        parametersResult.Parameters!["_githubUsername"] = auth.Username;
+        parametersResult.Parameters!["_isAdmin"] = auth.IsAdmin.ToString();
+
+        var artifactError = await ResolveArtifactAsync(req, logger, parametersResult.Parameters);
+        if (artifactError is not null) return artifactError;
+
+        // Fire the operation on a background thread — do not await
+        var parameters = parametersResult.Parameters!;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await aksOperation(parameters);
+                logger.LogInformation("Background operation {Operation} completed for user {Username}.",
+                    operationName, auth.Username);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Background operation {Operation} failed for user {Username}.",
+                    operationName, auth.Username);
+            }
+        });
+
+        var response = req.CreateResponse(HttpStatusCode.Accepted);
+        await response.WriteAsJsonAsync(new
+        {
+            message = $"{operationName} started. The operation is running in the background."
+        });
+        return response;
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════════
     // Shared pipeline helpers
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -489,7 +536,23 @@ public abstract class FunctionBase
     {
         var clientIp = GetClientIp(req);
 
-        // ── Step 0: Check IP block list ───────────────────────────────────────────
+        // ── Step 0a: Protocol version check ───────────────────────────────────────
+        var protocolVersionHeader = req.Headers.TryGetValues("X-Fkh-Protocol-Version", out var pvValues)
+            ? pvValues.FirstOrDefault() : null;
+        var clientAppHeader = req.Headers.TryGetValues("X-Fkh-Client", out var caValues)
+            ? caValues.FirstOrDefault() : null;
+
+        var protocolVersion = Models.ProtocolVersionConfig.ParseProtocolVersion(protocolVersionHeader);
+        var clientName = Models.ProtocolVersionConfig.ParseClientName(clientAppHeader);
+        var protocolError = Models.ProtocolVersionConfig.Validate(protocolVersion, clientName);
+        if (protocolError is not null)
+        {
+            logger.LogWarning("Protocol version mismatch from {ClientApp} (version {ProtocolVersion}): {Error}",
+                clientName, protocolVersion, protocolError);
+            return (null, Respond(req, HttpStatusCode.UpgradeRequired, protocolError));
+        }
+
+        // ── Step 0b: Check IP block list ──────────────────────────────────────────
         if (IsIpBlocked(clientIp))
         {
             logger.LogWarning("Blocked request from {IP} — too many failed auth attempts.", clientIp);
@@ -688,6 +751,21 @@ public abstract class FunctionBase
             return Respond(req, HttpStatusCode.ServiceUnavailable,
                 "The cluster API is not reachable yet. It may still be starting up — please try again in a minute.");
         }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogWarning(ex, "Operation {Operation} failed for user {Username}.", operationName, username);
+            return Respond(req, HttpStatusCode.BadRequest, ex.Message);
+        }
+        catch (ArgumentException ex)
+        {
+            logger.LogWarning(ex, "Operation {Operation} failed for user {Username}.", operationName, username);
+            return Respond(req, HttpStatusCode.BadRequest, ex.Message);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            logger.LogWarning(ex, "Operation {Operation} denied for user {Username}.", operationName, username);
+            return Respond(req, HttpStatusCode.Forbidden, ex.Message);
+        }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to execute {Operation} for user {Username}.", operationName, username);
@@ -810,21 +888,10 @@ public abstract class FunctionBase
             if (string.Equals(parameter.Name, "name", StringComparison.OrdinalIgnoreCase)
                 && !string.IsNullOrWhiteSpace(value))
             {
-                if (isAdmin)
+                if (!value.All(c => char.IsLetterOrDigit(c) || c == '-'))
                 {
-                    if (!value.All(c => char.IsLetterOrDigit(c) || c == '-'))
-                    {
-                        return ParameterValidationResult.Fail(
-                            "Parameter 'name' may only contain alphanumeric characters and hyphens.");
-                    }
-                }
-                else
-                {
-                    if (!value.All(char.IsLetterOrDigit))
-                    {
-                        return ParameterValidationResult.Fail(
-                            "Parameter 'name' may only contain alphanumeric characters (a-z, A-Z, 0-9).");
-                    }
+                    return ParameterValidationResult.Fail(
+                        "Parameter 'name' may only contain alphanumeric characters and hyphens.");
                 }
             }
 

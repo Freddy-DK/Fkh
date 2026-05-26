@@ -39,6 +39,11 @@ on:
         required: false
         type: string
         default: 'main'
+      staging:
+        description: 'Deploy to the staging Function App instead of production'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   id-token: write
@@ -93,10 +98,23 @@ jobs:
           $subscriptionId = Get-TfVar "subscription_id" $varFile
           $tenantId       = Get-TfVar "tenant_id" $varFile
           $deployClientId = Get-TfVar "azure_deploy_client_id" $varFile
+          $deploymentName = Get-TfVar "fkhDeploymentName" $varFile
+          try { $githubAppClientId = Get-TfVar "github_app_client_id" $varFile } catch { $githubAppClientId = "" }
 
-          "subscription_id=$subscriptionId" >> $env:GITHUB_OUTPUT
-          "tenant_id=$tenantId"             >> $env:GITHUB_OUTPUT
-          "deploy_client_id=$deployClientId" >> $env:GITHUB_OUTPUT
+          $resourceGroupName = "fkh-$deploymentName"
+          $functionAppName   = "fkh-$deploymentName-backend"
+          $stagingAppName    = "fkh-$deploymentName-backend-staging"
+          $webAppName        = "fkh-$deploymentName-web"
+
+          "subscription_id=$subscriptionId"         >> $env:GITHUB_OUTPUT
+          "tenant_id=$tenantId"                     >> $env:GITHUB_OUTPUT
+          "deploy_client_id=$deployClientId"        >> $env:GITHUB_OUTPUT
+          "deployment_name=$deploymentName"         >> $env:GITHUB_OUTPUT
+          "resource_group_name=$resourceGroupName"  >> $env:GITHUB_OUTPUT
+          "function_app_name=$functionAppName"      >> $env:GITHUB_OUTPUT
+          "staging_function_app_name=$stagingAppName" >> $env:GITHUB_OUTPUT
+          "web_app_name=$webAppName"                >> $env:GITHUB_OUTPUT
+          "github_app_client_id=$githubAppClientId" >> $env:GITHUB_OUTPUT
 
           # Set ARM env vars for Terraform OIDC (used by all subsequent steps)
           "ARM_CLIENT_ID=$deployClientId"       >> $env:GITHUB_ENV
@@ -104,11 +122,6 @@ jobs:
           "ARM_SUBSCRIPTION_ID=$subscriptionId" >> $env:GITHUB_ENV
 
       # ── Tool setup ────────────────────────────────────────────────────────
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v4
-        with:
-          terraform_wrapper: false
-
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v5
         with:
@@ -124,56 +137,14 @@ jobs:
           tenant-id: ${{ steps.parse.outputs.tenant_id }}
           subscription-id: ${{ steps.parse.outputs.subscription_id }}
 
-      # ── Resolve function app name ─────────────────────────────────────────
-      - name: Resolve function app name and resource group
-        id: resolve
-        shell: pwsh
-        working-directory: fkh/terraform
-        run: |
-          # Read from Terraform state
-          $varFile = "${{ steps.tfvars.outputs.tfvars_file }}"
-            function Get-TfVar([string]$Name, [string]$File) {
-              $line = Get-Content $File | Where-Object { $_ -match "^\s*$Name\s*=" } | Select-Object -First 1
-              if ($line -match '=\s*"([^"]+)"') { return $Matches[1] }
-              throw "Could not find $Name in $File"
-            }
-
-            $subscriptionId = Get-TfVar "subscription_id" $varFile
-            $deploymentName = Get-TfVar "fkhDeploymentName" $varFile
-
-            $stateRg        = "fkh-$deploymentName-state"
-            $stateAccount   = "fkh$($deploymentName.Replace('-','').Substring(0, [Math]::Min($deploymentName.Replace('-','').Length, 14)))state"
-
-            # Initialize Terraform to read state
-            terraform init -reconfigure `
-              -backend-config="resource_group_name=$stateRg" `
-              -backend-config="storage_account_name=$stateAccount" `
-              -backend-config="container_name=tfstate" `
-              -backend-config="key=$deploymentName.tfstate" `
-              -backend-config="subscription_id=$subscriptionId" `
-              -backend-config="use_azuread_auth=true"
-
-            $functionAppName = terraform output -raw function_app_name
-            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($functionAppName)) {
-              throw "Could not retrieve function_app_name from Terraform output."
-            }
-            $resourceGroupName = terraform output -raw resource_group_name
-            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($resourceGroupName)) {
-              throw "Could not retrieve resource_group_name from Terraform output."
-            }
-
-          "function_app_name=$functionAppName"     >> $env:GITHUB_OUTPUT
-          "resource_group_name=$resourceGroupName" >> $env:GITHUB_OUTPUT
-          Write-Host "Function App: $functionAppName"
-          Write-Host "Resource Group: $resourceGroupName"
-
       # ── Publish function code ─────────────────────────────────────────────
       - name: Publish Azure Function
         shell: pwsh
         working-directory: fkh/fkh-backend
         run: |
-          $functionAppName   = "${{ steps.resolve.outputs.function_app_name }}"
-          $resourceGroupName = "${{ steps.resolve.outputs.resource_group_name }}"
+          $staging = "${{ inputs.staging }}" -eq "true"
+          $functionAppName   = if ($staging) { "${{ steps.parse.outputs.staging_function_app_name }}" } else { "${{ steps.parse.outputs.function_app_name }}" }
+          $resourceGroupName = "${{ steps.parse.outputs.resource_group_name }}"
 
           Write-Host "Publishing to $functionAppName in $resourceGroupName..."
 
@@ -187,3 +158,54 @@ jobs:
           }
 
           Write-Host "Function app $functionAppName published successfully." -ForegroundColor Green
+
+      # ── Also publish to staging (when deploying to production and staging exists) ──
+      - name: Publish to staging
+        if: inputs.staging != true
+        shell: pwsh
+        working-directory: fkh/fkh-backend
+        run: |
+          $stagingAppName    = "${{ steps.parse.outputs.staging_function_app_name }}"
+          $resourceGroupName = "${{ steps.parse.outputs.resource_group_name }}"
+
+          # Check if staging app actually exists
+          $exists = az functionapp show --name $stagingAppName --resource-group $resourceGroupName 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Staging backend not deployed — skipping." -ForegroundColor Yellow
+            exit 0
+          }
+
+          Write-Host "Also publishing to staging: $stagingAppName..."
+
+          func azure functionapp publish $stagingAppName --dotnet-isolated
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Staging publish failed (exit code $LASTEXITCODE) — production was deployed successfully." -ForegroundColor Yellow
+            az functionapp restart --name $stagingAppName --resource-group $resourceGroupName
+          }
+
+          Write-Host "Staging function app $stagingAppName published successfully." -ForegroundColor Green
+
+      # ── Build and deploy web app ───────────────────────────────────────
+      - name: Build and deploy web app
+        if: inputs.staging != true
+        shell: pwsh
+        working-directory: fkh/fkh-web
+        env:
+          VITE_GITHUB_CLIENT_ID: ${{ steps.parse.outputs.github_app_client_id }}
+          VITE_BACKEND_URL: https://fkh-${{ steps.parse.outputs.deployment_name }}-backend.azurewebsites.net/api
+        run: |
+          $webAppName        = "${{ steps.parse.outputs.web_app_name }}"
+          $resourceGroupName = "${{ steps.parse.outputs.resource_group_name }}"
+
+          # Get deployment token via az CLI (skips if web app doesn't exist)
+          $secretsJson = az staticwebapp secrets list --name $webAppName --resource-group $resourceGroupName 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Web app not deployed — skipping." -ForegroundColor Yellow
+            exit 0
+          }
+          $deployToken = ($secretsJson | ConvertFrom-Json).properties.apiKey
+
+          npm ci
+          npm run build
+          npx @azure/static-web-apps-cli deploy ./dist --deployment-token $deployToken --env production
+          Write-Host "Web app deployed successfully." -ForegroundColor Green

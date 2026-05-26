@@ -20,6 +20,12 @@ name: Update Backend
 
 on:
   workflow_dispatch:
+    inputs:
+      staging:
+        description: 'Deploy to the staging Function App only (default: false)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   update:
@@ -30,3 +36,4 @@ jobs:
     with:
       fkh-repo: Freddy-DK/Fkh
       fkh-ref: main
+      staging: ${{ inputs.staging }}

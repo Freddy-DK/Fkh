@@ -39,6 +39,7 @@ var host = new HostBuilder()
         services.AddSingleton<FkhRestoreTenantDatabase>();
         services.AddSingleton<FkhDismountTenant>();
         services.AddSingleton<FkhMountTenant>();
+        services.AddSingleton<FkhConvertToSingleTenant>();
         services.AddSingleton<FkhBackupDatabase>();
         services.AddSingleton<FkhStatus>();
         services.AddSingleton<FkhPrepull>();

@@ -49,6 +49,7 @@ state_location  = ""             # Azure region for the Terraform state resource
 #                                                                                    __/ |    
 #                                                                                   |___/     
 aks_sku_tier                 = "Free"             # Free (dev/test, no SLA) | Standard (99.95% SLA) | Premium (99.99% SLA)
+acr_sku                      = "Basic"            # Basic (dev/test) | Standard (production) | Premium (geo-replication)
 linux_vm_size                = "Standard_D4s_v5"  # v6 not supported for sqlserver
 windows_vm_size              = "Standard_D4s_v5"  # v6 not supported for hyhervisor gen1
 windows_min_node_count       = 0                  # Set to 1 to keep a warm Windows node (~$70-100/mo)
@@ -71,6 +72,17 @@ windows_prepull_images = [
 # Kubecost — free per-pod cost analysis dashboard
 # Needs minimum D4s Linux VM Size to enable
 kubecost_enabled = false
+
+# Staging — deploy a staging Function App alongside production for testing backend changes
+enable_staging_backend = false
+
+# Web App — deploy a Static Web App for browser-based container management
+enable_web_app          = false
+static_web_app_location = "westeurope"   # Azure region for the Static Web App (not all regions supported, see https://aka.ms/swa/regions)
+
+# Function timeout — maximum execution time per request (in minutes). Also used by the CLI as its HTTP timeout.
+# Consumption plan maximum is 10 minutes.
+function_timeout_minutes = 10
 
 # SQL Server
 # sql_sa_password = ""  # set as GitHub Secret: SQL_SA_PASSWORD
@@ -135,6 +147,7 @@ allowed_oidc_repos = [
 
 # GitHub App — triggers image-build workflows in this deployment repo
 github_app_id              = "1234567"  # paste your App ID here
+github_app_client_id       = ""          # Client ID of the GitHub App (for web app OAuth login). Find it on the GitHub App settings page.
 # github_app_private_key   = ""  # set as GitHub Secret: GH_APP_PRIVATE_KEY
 github_app_installation_id = "123456789"  # paste your Installation ID here
 

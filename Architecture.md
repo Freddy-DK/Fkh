@@ -92,7 +92,7 @@ graph TB
 | Component | Path | Description |
 |-----------|------|-------------|
 | **VS Code Extension** | `fkh-vsix/` | Registers commands to create/remove containers. Uses VS Code's built-in GitHub auth to obtain a Bearer token and calls the Function App API. Fetches the function catalog for dynamic parameter prompts. Auto-detects public IP for SQL access. Parameter defaults can be set via `fkh.<Function>.<param>` settings. |
-| **CLI Tool** | `fkh-cli/` | Standalone .NET executable (`fkh.exe`). Authenticates via `--oidcToken` (GitHub Actions OIDC), `OIDC_TOKEN` env var, `GH_TOKEN`, `GITHUB_TOKEN`, or `gh auth token`. Interactively prompts for parameters with masked password input. Auto-detects public IP for SQL access. |
+| **CLI Tool** | `fkh-cli/` | Standalone .NET executable (`fkh.exe`). Authenticates via `--useOIDC` (GitHub Actions OIDC), `GH_TOKEN`, `GITHUB_TOKEN`, or `gh auth token`. Interactively prompts for parameters with masked password input. Auto-detects public IP for SQL access. |
 
 ### Azure Functions Backend
 
