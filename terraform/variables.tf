@@ -193,6 +193,31 @@ variable "admin_org_teams" {
   default = []
 }
 
+variable "support_org_teams" {
+  description = "List of GitHub org/team pairs that grant support access. Support permissions are enforced in the backend."
+  type = list(object({
+    org  = string
+    team = string
+  }))
+  default = []
+}
+
+variable "allowed_users" {
+  description = "Explicit GitHub usernames and their roles (admin, member, or support). Checked in addition to team membership."
+  type = list(object({
+    user = string
+    role = string
+  }))
+  default = []
+
+  validation {
+    condition = alltrue([
+      for u in var.allowed_users : contains(["admin", "member", "support"], lower(u.role))
+    ])
+    error_message = "Each allowed_users entry must have role admin, member, or support."
+  }
+}
+
 variable "allowed_oidc_repos" {
   description = "List of GitHub repositories (org/repo) allowed to authenticate via OIDC from GitHub Actions workflows."
   type    = list(string)

@@ -140,6 +140,18 @@ admin_org_teams = [
   { org = "my-company",    team = "Fkh-admins" }
 ]
 
+# Support teams — members get support access (permissions defined in the backend)
+support_org_teams = [
+  { org = "my-company", team = "Fkh-supporters" }
+]
+
+# Explicit users — grant access by GitHub username without team membership
+# Role must be admin, member, or support
+allowed_users = [
+  { user = "octocat", role = "member" },
+  { user = "support-agent", role = "support" }
+]
+
 # Repositories — GitHub repos allowed to call Fkh via OIDC from GitHub Actions
 # Please note that the AUTH token provided must be the ID token
 allowed_oidc_repos = [

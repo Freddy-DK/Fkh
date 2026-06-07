@@ -19,6 +19,8 @@ public abstract class FunctionBase
 {
     private static readonly List<OrgTeamConfig> AllowedOrgTeams = LoadOrgTeamConfig("ALLOWED_ORG_TEAMS");
     private static readonly List<OrgTeamConfig> AdminOrgTeams = LoadOrgTeamConfig("ADMIN_ORG_TEAMS", required: false);
+    private static readonly List<OrgTeamConfig> SupportOrgTeams = LoadOrgTeamConfig("SUPPORT_ORG_TEAMS", required: false);
+    private static readonly List<AllowedUserConfig> AllowedUsers = LoadAllowedUsers();
     private static readonly GitHubOidcService OidcService = new();
 
     // ── Brute-force protection ───────────────────────────────────────────────────
@@ -235,6 +237,7 @@ public abstract class FunctionBase
         ClearFailedAttempts(auth.ClientIp);
         parameters["_githubUsername"] = auth.Username;
         parameters["_isAdmin"] = auth.IsAdmin.ToString();
+        parameters["_isSupport"] = auth.IsSupport.ToString();
         foreach (var kv in internalParams)
             parameters[kv.Key] = kv.Value;
 
@@ -409,6 +412,7 @@ public abstract class FunctionBase
         // Inject the authenticated GitHub username so services can use it
         parametersResult.Parameters!["_githubUsername"] = auth.Username;
         parametersResult.Parameters!["_isAdmin"] = auth.IsAdmin.ToString();
+        parametersResult.Parameters!["_isSupport"] = auth.IsSupport.ToString();
 
         // Resolve artifact shorthand (e.g. "///us/latest") to a full URL
         var artifactError = await ResolveArtifactAsync(req, logger, parametersResult.Parameters);
@@ -445,6 +449,7 @@ public abstract class FunctionBase
 
         parametersResult.Parameters!["_githubUsername"] = auth.Username;
         parametersResult.Parameters!["_isAdmin"] = auth.IsAdmin.ToString();
+        parametersResult.Parameters!["_isSupport"] = auth.IsSupport.ToString();
 
         var artifactError = await ResolveArtifactAsync(req, logger, parametersResult.Parameters);
         if (artifactError is not null) return artifactError;
@@ -519,6 +524,7 @@ public abstract class FunctionBase
     {
         public required string Username { get; init; }
         public required bool IsAdmin { get; init; }
+        public required bool IsSupport { get; init; }
         public required string ClientIp { get; init; }
         public required FunctionDefinition Function { get; init; }
     }
@@ -579,6 +585,7 @@ public abstract class FunctionBase
         // ── Step 2 & 3: Authenticate and authorize ───────────────────────────────
         string username;
         var isAdmin = false;
+        var isSupport = false;
 
         if (GitHubOidcService.IsOidcToken(token))
         {
@@ -608,36 +615,14 @@ public abstract class FunctionBase
             username = ghUsername;
             logger.LogInformation("Received {Operation} request from GitHub user: {Username}", operationName, username);
 
-            var authorized = false;
-            foreach (var orgTeam in AdminOrgTeams)
-            {
-                if (await gitHub.IsTeamMemberAsync(token, orgTeam.Org, orgTeam.Team, username))
-                {
-                    logger.LogInformation("User {Username} authorized as admin via org={Org} team={Team}", username, orgTeam.Org, orgTeam.Team);
-                    authorized = true;
-                    isAdmin = true;
-                    break;
-                }
-            }
-
+            var (authorized, userIsAdmin, userIsSupport) = await AuthorizeGitHubUserAsync(gitHub, token, username, logger);
+            isAdmin = userIsAdmin;
+            isSupport = userIsSupport;
             if (!authorized)
             {
-                foreach (var orgTeam in AllowedOrgTeams)
-                {
-                    if (await gitHub.IsTeamMemberAsync(token, orgTeam.Org, orgTeam.Team, username))
-                    {
-                        logger.LogInformation("User {Username} authorized via org={Org} team={Team}", username, orgTeam.Org, orgTeam.Team);
-                        authorized = true;
-                        break;
-                    }
-                }
-            }
-
-            if (!authorized)
-            {
-                logger.LogWarning("User {Username} is not a member of any authorized team.", username);
+                logger.LogWarning("User {Username} is not authorized.", username);
                 RecordFailedAttempt(clientIp);
-                return (null, Respond(req, HttpStatusCode.Forbidden, "You are not a member of an authorized team."));
+                return (null, Respond(req, HttpStatusCode.Forbidden, "You are not authorized to use this Fkh deployment."));
             }
         }
 
@@ -652,9 +637,83 @@ public abstract class FunctionBase
         {
             Username = username,
             IsAdmin = isAdmin,
+            IsSupport = isSupport,
             ClientIp = clientIp,
             Function = function
         }, null);
+    }
+
+    private static async Task<(bool Authorized, bool IsAdmin, bool IsSupport)> AuthorizeGitHubUserAsync(
+        GitHubAuthService gitHub,
+        string token,
+        string username,
+        ILogger logger)
+    {
+        var isAdmin = false;
+        var isSupport = false;
+        var authorized = false;
+
+        foreach (var entry in AllowedUsers)
+        {
+            if (!string.Equals(entry.User, username, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            authorized = true;
+            switch (entry.Role.ToLowerInvariant())
+            {
+                case "admin":
+                    isAdmin = true;
+                    logger.LogInformation("User {Username} authorized as admin via allowed_users", username);
+                    break;
+                case "support":
+                    isSupport = true;
+                    logger.LogInformation("User {Username} authorized as support via allowed_users", username);
+                    break;
+                default:
+                    logger.LogInformation("User {Username} authorized as member via allowed_users", username);
+                    break;
+            }
+        }
+
+        foreach (var orgTeam in AdminOrgTeams)
+        {
+            if (await gitHub.IsTeamMemberAsync(token, orgTeam.Org, orgTeam.Team, username))
+            {
+                logger.LogInformation("User {Username} authorized as admin via org={Org} team={Team}", username, orgTeam.Org, orgTeam.Team);
+                authorized = true;
+                isAdmin = true;
+            }
+        }
+
+        if (!isAdmin)
+        {
+            foreach (var orgTeam in SupportOrgTeams)
+            {
+                if (await gitHub.IsTeamMemberAsync(token, orgTeam.Org, orgTeam.Team, username))
+                {
+                    logger.LogInformation("User {Username} authorized as support via org={Org} team={Team}", username, orgTeam.Org, orgTeam.Team);
+                    authorized = true;
+                    isSupport = true;
+                }
+            }
+        }
+
+        if (!isAdmin)
+        {
+            foreach (var orgTeam in AllowedOrgTeams)
+            {
+                if (await gitHub.IsTeamMemberAsync(token, orgTeam.Org, orgTeam.Team, username))
+                {
+                    logger.LogInformation("User {Username} authorized via org={Org} team={Team}", username, orgTeam.Org, orgTeam.Team);
+                    authorized = true;
+                }
+            }
+        }
+
+        if (isAdmin)
+            isSupport = false;
+
+        return (authorized, isAdmin, isSupport);
     }
 
 
@@ -930,6 +989,30 @@ public abstract class FunctionBase
         return JsonSerializer.Deserialize<List<OrgTeamConfig>>(raw,
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
             ?? throw new InvalidOperationException($"Failed to parse {envVarName}.");
+    }
+
+    private static List<AllowedUserConfig> LoadAllowedUsers()
+    {
+        var raw = Environment.GetEnvironmentVariable("ALLOWED_USERS");
+        if (string.IsNullOrWhiteSpace(raw))
+            return [];
+
+        var users = JsonSerializer.Deserialize<List<AllowedUserConfig>>(raw,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+            ?? throw new InvalidOperationException("Failed to parse ALLOWED_USERS.");
+
+        foreach (var user in users)
+        {
+            var role = user.Role.ToLowerInvariant();
+            if (role is not ("admin" or "member" or "support"))
+            {
+                throw new InvalidOperationException(
+                    $"Invalid role '{user.Role}' for user '{user.User}' in ALLOWED_USERS. " +
+                    "Expected admin, member, or support.");
+            }
+        }
+
+        return users;
     }
 
     private sealed class ParameterValidationResult

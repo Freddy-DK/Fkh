@@ -51,7 +51,8 @@ Clients (VSIX, CLI, Web)
 ### Authentication & authorization
 
 - GitHub **PAT** or **OIDC** (GitHub Actions) to the backend.
-- Org **member** and **admin** teams via env `ALLOWED_ORG_TEAMS` / `ADMIN_ORG_TEAMS`.
+- Org **member**, **admin**, and **support** teams via env `ALLOWED_ORG_TEAMS` / `ADMIN_ORG_TEAMS` / `SUPPORT_ORG_TEAMS`.
+- Optional explicit users via `ALLOWED_USERS` (username + role).
 - Optional repo allowlists for OIDC (`allowed_oidc_repos` in tfvars).
 - Never add long-lived secrets to source control; use GitHub Secrets and managed identities.
 

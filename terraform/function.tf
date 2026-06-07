@@ -62,6 +62,8 @@ locals {
     BASE_IMAGE                              = var.base_image
     ALLOWED_ORG_TEAMS                       = jsonencode(var.allowed_org_teams)
     ADMIN_ORG_TEAMS                          = jsonencode(var.admin_org_teams)
+    SUPPORT_ORG_TEAMS                        = jsonencode(var.support_org_teams)
+    ALLOWED_USERS                            = jsonencode(var.allowed_users)
     ALLOWED_OIDC_REPOS                       = jsonencode(var.allowed_oidc_repos)
     AKS_LOCATION                             = var.location
     CONTACT_EMAIL_FOR_LETSENCRYPT             = var.contact_email_for_letsencrypt

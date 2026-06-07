@@ -125,12 +125,22 @@ allowed_org_teams = [
 admin_org_teams = [
   { org = "my-company", team = "Fkh-admins" }
 ]
+
+support_org_teams = [
+  # { org = "my-company", team = "Fkh-support" }
+]
+
+allowed_users = [
+  # { user = "octocat", role = "member" }
+]
 ```
 
 | Setting | What it controls |
 |---|---|
 | `allowed_org_teams` | Teams whose members can provision Business Central containers |
 | `admin_org_teams` | Teams whose members get admin access and normal access |
+| `support_org_teams` | Teams whose members get support access |
+| `allowed_users` | Explicit GitHub usernames and roles (`admin`, `member`, or `support`) |
 
 > **Important:** organization and team names are case-sensitive.
 
