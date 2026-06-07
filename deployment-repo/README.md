@@ -23,7 +23,7 @@ Create a GitHub App in your organization and install it on this deployment repos
 
 ### 3. Set up GitHub Teams
 
-Create member and admin teams in your GitHub organization to control access. See [Step 4 — GitHub Teams](https://github.com/Freddy-DK/Fkh/blob/main/Installation/Step4-GitHubTeams.md).
+Create member, admin, and support teams in your GitHub organization to control access — or grant individual users access directly. See [Step 4 — GitHub Teams](https://github.com/Freddy-DK/Fkh/blob/main/Installation/Step4-GitHubTeams.md).
 
 ### 4. Configure `config/deployment.tfvars`
 

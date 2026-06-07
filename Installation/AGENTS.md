@@ -10,7 +10,7 @@
 | [Step1-DeploymentRepo.md](Step1-DeploymentRepo.md) | Private deployment repo from template |
 | [Step2-AzureIdentity.md](Step2-AzureIdentity.md) | Azure deployment identity (OIDC) |
 | [Step3-GitHubApp.md](Step3-GitHubApp.md) | GitHub App for workflows and secrets |
-| [Step4-GitHubTeams.md](Step4-GitHubTeams.md) | Member and admin teams |
+| [Step4-GitHubTeams.md](Step4-GitHubTeams.md) | Member, admin, and support teams; individual user access |
 | [Step5-ConfigureEnvironment.md](Step5-ConfigureEnvironment.md) | `deployment.tfvars` and GitHub Secrets |
 | [Step6-Deploy.md](Step6-Deploy.md) | Deploy Full Stack workflow |
 

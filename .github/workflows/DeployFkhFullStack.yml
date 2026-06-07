@@ -402,22 +402,36 @@ jobs:
           $tfvarsFile = "${{ steps.tfvars.outputs.tfvars_file }}"
           $memberTeams = @()
           $adminTeams  = @()
+          $supportTeams = @()
+          $allowedUsers = @()
           $inMembers = $false
           $inAdmins  = $false
+          $inSupport = $false
+          $inUsers   = $false
           foreach ($line in Get-Content $tfvarsFile) {
             if ($line -match '^\s*allowed_org_teams\s*=') { $inMembers = $true; continue }
             if ($line -match '^\s*admin_org_teams\s*=')   { $inAdmins  = $true; continue }
+            if ($line -match '^\s*support_org_teams\s*=') { $inSupport = $true; continue }
+            if ($line -match '^\s*allowed_users\s*=')     { $inUsers   = $true; continue }
             if ($inMembers -and $line -match '^\s*\]')     { $inMembers = $false; continue }
             if ($inAdmins  -and $line -match '^\s*\]')     { $inAdmins  = $false; continue }
-            if (($inMembers -or $inAdmins) -and $line -match 'org\s*=\s*"([^"]+)".*team\s*=\s*"([^"]+)"') {
+            if ($inSupport -and $line -match '^\s*\]')     { $inSupport = $false; continue }
+            if ($inUsers   -and $line -match '^\s*\]')     { $inUsers   = $false; continue }
+            if (($inMembers -or $inAdmins -or $inSupport) -and $line -match 'org\s*=\s*"([^"]+)".*team\s*=\s*"([^"]+)"') {
               $entry = "$($Matches[1])/$($Matches[2])"
               if ($inMembers) { $memberTeams += $entry }
               if ($inAdmins)  { $adminTeams  += $entry }
+              if ($inSupport) { $supportTeams += $entry }
+            }
+            if ($inUsers -and $line -match 'user\s*=\s*"([^"]+)".*role\s*=\s*"([^"]+)"') {
+              $allowedUsers += "$($Matches[1]) ($($Matches[2]))"
             }
           }
 
-          $memberList = if ($memberTeams.Count -eq 0) { '(none configured)' } else { ($memberTeams | ForEach-Object { $org, $team = $_ -split '/', 2; "[$_](https://github.com/orgs/$org/teams/$team/members)" }) -join ', ' }
-          $adminList  = if ($adminTeams.Count -eq 0)  { '(none configured)' } else { ($adminTeams | ForEach-Object { $org, $team = $_ -split '/', 2; "[$_](https://github.com/orgs/$org/teams/$team/members)" }) -join ', ' }
+          $memberList  = if ($memberTeams.Count -eq 0)  { '(none configured)' } else { ($memberTeams | ForEach-Object { $org, $team = $_ -split '/', 2; "[$_](https://github.com/orgs/$org/teams/$team/members)" }) -join ', ' }
+          $adminList   = if ($adminTeams.Count -eq 0)   { '(none configured)' } else { ($adminTeams | ForEach-Object { $org, $team = $_ -split '/', 2; "[$_](https://github.com/orgs/$org/teams/$team/members)" }) -join ', ' }
+          $supportList = if ($supportTeams.Count -eq 0) { '(none configured)' } else { ($supportTeams | ForEach-Object { $org, $team = $_ -split '/', 2; "[$_](https://github.com/orgs/$org/teams/$team/members)" }) -join ', ' }
+          $usersList   = if ($allowedUsers.Count -eq 0) { '(none configured)' } else { $allowedUsers -join ', ' }
 
           # Job summary (rendered as Markdown on the run summary page)
           $webAppRow = ""
@@ -460,6 +474,8 @@ jobs:
           |------|-------|
           | **Members** (can provision containers) | $memberList |
           | **Admins** | $adminList |
+          | **Support** | $supportList |
+          | **Individual Users** | $usersList |
           $qrSection
           "@
           $summary >> $env:GITHUB_STEP_SUMMARY

@@ -99,7 +99,7 @@ graph TB
 | Component | Path | Description |
 |-----------|------|-------------|
 | **FunctionBase** | `fkh-backend/FunctionBase.cs` | Base class for all HTTP functions. Extracts Bearer token, validates it against GitHub API (PAT) or GitHub Actions OIDC (JWT), checks team membership, parses and validates parameters against the function catalog, and injects the GitHub username. Includes brute-force protection (IP blocking after 3 failed attempts within 5 minutes). |
-| **GitHubAuthService** | `fkh-backend/Services/GitHubAuthService.cs` | Calls `GET /user` and `GET /orgs/{org}/teams/{team}/memberships/{username}` to authenticate and authorize requests. Allowed org/team pairs loaded from `ALLOWED_ORG_TEAMS` env var. |
+| **GitHubAuthService** | `fkh-backend/Services/GitHubAuthService.cs` | Calls `GET /user` and `GET /orgs/{org}/teams/{team}/memberships/{username}` to authenticate and authorize requests. Allowed org/team pairs loaded from `ALLOWED_ORG_TEAMS`, `ADMIN_ORG_TEAMS`, and `SUPPORT_ORG_TEAMS` env vars. Individual user grants loaded from `ALLOWED_USERS`. |
 | **GitHubOidcService** | `fkh-backend/Services/GitHubOidcService.cs` | Validates GitHub Actions OIDC JWTs against GitHub's OpenID Connect discovery endpoint. Checks the `repository` claim against the `ALLOWED_OIDC_REPOS` allow-list. OIDC callers are granted admin privileges. |
 | **GitHubAppTokenService** | `fkh-backend/Services/GitHubAppTokenService.cs` | Creates JWTs signed with the GitHub App private key, exchanges for installation access tokens, and dispatches the `createImages` workflow when an image is missing from ACR. |
 | **FkhCreateContainer** | `fkh-backend/Services/FkhCreateContainer.cs` | Orchestrates container creation: ACR image check → database backup SAS URL → k8s exec to download and restore database → create K8s deployment, service, and secret. |
@@ -366,6 +366,8 @@ Each organization has a file under `terraform/organizations/<org>.tfvars`. Copy 
 | `github_admin_team_members` | Admin usernames |
 | `allowed_org_teams` | Org/team pairs the Function App accepts for user auth |
 | `admin_org_teams` | Org/team pairs that grant admin privileges |
+| `support_org_teams` | Org/team pairs that grant support access |
+| `allowed_users` | Explicit GitHub usernames and roles (`admin`, `member`, or `support`) |
 | `allowed_oidc_repos` | Repos allowed to call the Function App via GitHub Actions OIDC |
 | `github_app_id` | GitHub App ID (triggers image builds) |
 | `github_app_installation_id` | Installation ID of the GitHub App |

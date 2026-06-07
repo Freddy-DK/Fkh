@@ -16,13 +16,13 @@ Fkh is a platform for managing Business Central containers on Azure Kubernetes S
 - `GetFunctionCatalog` endpoint (`GET /functions`) serves the catalog as JSON (excludes `Hidden` functions)
 - Two execution paths in `FunctionBase`: `ExecuteAsync` (JSON body) and `ExecuteWithFileAsync` (multipart/form-data for file uploads)
 - `RetryAfterException` signals long-running operations — returns HTTP 202 with Retry-After header
-- Auth: GitHub tokens (PAT or OIDC), validated via GitHub API. Team membership checked against `ALLOWED_ORG_TEAMS` / `ADMIN_ORG_TEAMS` env vars
+- Auth: GitHub tokens (PAT or OIDC), validated via GitHub API. Team membership checked against `ALLOWED_ORG_TEAMS` / `ADMIN_ORG_TEAMS` / `SUPPORT_ORG_TEAMS` env vars. Individual users can be granted access via `ALLOWED_USERS` (checked in addition to team membership)
 - Some functions are `AdminOnly` (require admin team membership)
 
 ### Models (`fkh-backend/Models/`)
 - `FunctionContracts.cs`: `FunctionDefinition`, `FunctionParameterDefinition`, `FunctionCatalogResponse`, `FunctionInvokeRequest`, `RetryAfterException`
 - `GitHubModels.cs`: GitHub API response types
-- `OrgTeamConfig.cs`: org/team configuration model
+- `OrgTeamConfig.cs`: org/team configuration model; `AllowedUserConfig.cs`: explicit user grants (username + role)
 
 ### CLI (`fkh-cli/`)
 - .NET console app, entry point: `Program.cs` (top-level statements)
