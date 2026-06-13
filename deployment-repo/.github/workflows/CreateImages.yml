@@ -25,7 +25,7 @@ on:
 
 jobs:
   create:
-    uses: Freddy-DK/Fkh/.github/workflows/CreateImages.yml@main
+    uses: Freddy-DK/Fkh/.github/workflows/CreateImages.yml@latest
     permissions:
       id-token: write
       contents: read

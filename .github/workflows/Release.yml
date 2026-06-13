@@ -1,0 +1,78 @@
+# ============================================================================
+# Release – Create a versioned release of Fkh
+# ============================================================================
+# Creates a GitHub release with auto-generated notes from merged PRs.
+# Tags the release commit with the version number (e.g. v1.2.3 or v1.2.3-beta.1).
+#
+# Tag behavior:
+#   - Stable release (no -beta): creates/updates both `latest` and `preview` tags
+#   - Beta release (-beta.x):    creates/updates the `preview` tag only
+#
+# Deployment repos can reference these tags as the fkh-ref input.
+# ============================================================================
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (semver, e.g. 1.2.3 or 1.2.3-beta.1)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate version format
+        shell: pwsh
+        run: |
+          $version = "${{ inputs.version }}"
+          if ($version -notmatch '^\d+\.\d+\.\d+(-beta\.\d+)?$') {
+            Write-Error "Invalid version format: '$version'. Expected semver like 1.2.3 or 1.2.3-beta.1"
+            exit 1
+          }
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine if beta
+        id: meta
+        shell: pwsh
+        run: |
+          $version = "${{ inputs.version }}"
+          $isBeta = $version -match '-beta\.\d+$'
+          $tagName = "v$version"
+          "is_beta=$($isBeta.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "tag_name=$tagName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Version: $version, Tag: $tagName, Beta: $isBeta"
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag_name }}
+          name: ${{ steps.meta.outputs.tag_name }}
+          generate_release_notes: true
+          prerelease: ${{ steps.meta.outputs.is_beta == 'true' }}
+          target_commitish: ${{ github.sha }}
+
+      - name: Update preview tag
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f preview ${{ github.sha }}
+          git push origin preview --force
+
+      - name: Update latest tag
+        if: steps.meta.outputs.is_beta != 'true'
+        shell: pwsh
+        run: |
+          git tag -f latest ${{ github.sha }}
+          git push origin latest --force

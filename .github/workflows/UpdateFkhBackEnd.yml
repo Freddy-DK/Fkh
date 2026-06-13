@@ -38,7 +38,7 @@ on:
         description: 'Git ref to checkout from the Fkh fork (e.g. main, a branch name, a tag or a commit SHA)'
         required: false
         type: string
-        default: 'main'
+        default: 'latest'
       staging:
         description: 'Deploy to the staging Function App instead of production'
         required: false

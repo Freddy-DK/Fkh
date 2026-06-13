@@ -25,13 +25,13 @@ on:
 
 jobs:
   deploy:
-    uses: Freddy-DK/Fkh/.github/workflows/DeployFkhFullStack.yml@main
+    uses: Freddy-DK/Fkh/.github/workflows/DeployFkhFullStack.yml@latest
     permissions:
       id-token: write
       contents: read
     with:
       fkh-repo: Freddy-DK/Fkh
-      fkh-ref: main
+      fkh-ref: latest
     secrets:
       SQL_SA_PASSWORD: ${{ secrets.SQL_SA_PASSWORD }}
       GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}

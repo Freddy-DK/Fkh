@@ -5,7 +5,7 @@ sealed class UpdateDeploymentRepoCommand : ClientCommand
     public override List<ClientCommandParameter> Parameters =>
     [
         new() { Name = "deploymentRepo", Type = "string", Description = "Owner/name of the deployment repo to update (e.g. myorg/fkh-deploy)", Required = true },
-        new() { Name = "fkhRepo",        Type = "string", Description = "Owner/name of the Fkh fork, optionally with @branch (e.g. myorg/Fkh@dev). Default: Freddy-DK/Fkh@main", Required = false },
+        new() { Name = "fkhRepo",        Type = "string", Description = "Owner/name of the Fkh fork, optionally with @branch (e.g. myorg/Fkh@dev). Default: Freddy-DK/Fkh@latest", Required = false },
     ];
 
     public override async Task<int> ExecuteAsync(string[] args, CliSettings settings, bool asJson)
@@ -220,10 +220,10 @@ sealed class UpdateDeploymentRepoCommand : ClientCommand
         var atIndex = fkhFullRepo.IndexOf('@');
         if (atIndex >= 0)
             return (fkhFullRepo[..atIndex], fkhFullRepo[(atIndex + 1)..]);
-        return (fkhFullRepo, "main");
+        return (fkhFullRepo, "latest");
     }
 
-    internal static List<string> EnumerateGitHubDirectory(string repo, string dirPath, string branch = "main")
+    internal static List<string> EnumerateGitHubDirectory(string repo, string dirPath, string branch = "latest")
     {
         var files = new List<string>();
         var (exit, stdout, _) = RunProcess("gh", ["api", $"repos/{repo}/contents/{dirPath}?ref={branch}", "--jq", ".[] | .type + \"\\t\" + .path"]);

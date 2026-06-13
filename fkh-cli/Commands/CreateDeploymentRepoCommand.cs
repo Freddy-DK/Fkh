@@ -5,7 +5,7 @@ sealed class CreateDeploymentRepoCommand : ClientCommand
     public override List<ClientCommandParameter> Parameters =>
     [
         new() { Name = "deploymentRepo", Type = "string", Description = "Owner/name of the deployment repo to create (e.g. myorg/fkh-deploy)", Required = true },
-        new() { Name = "fkhRepo",        Type = "string", Description = "Owner/name of the Fkh fork, optionally with @branch (e.g. myorg/Fkh@dev). Default: Freddy-DK/Fkh@main", Required = false },
+        new() { Name = "fkhRepo",        Type = "string", Description = "Owner/name of the Fkh fork, optionally with @branch (e.g. myorg/Fkh@dev). Default: Freddy-DK/Fkh@latest", Required = false },
     ];
 
     public override async Task<int> ExecuteAsync(string[] args, CliSettings settings, bool asJson)

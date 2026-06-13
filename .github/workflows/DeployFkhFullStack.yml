@@ -40,7 +40,7 @@ on:
         description: 'Git ref to checkout from the Fkh fork (e.g. main, a branch name, a tag or a commit SHA)'
         required: false
         type: string
-        default: 'main'
+        default: 'latest'
     secrets:
       SQL_SA_PASSWORD:
         required: true
