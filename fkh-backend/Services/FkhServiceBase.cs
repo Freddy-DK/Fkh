@@ -344,6 +344,27 @@ public abstract class FkhServiceBase
         return SanitizeAppName($"{githubUsername}-{name}");
     }
 
+    /// <summary>
+    /// Resolves the app label for a NEW container being created.
+    /// Unlike <see cref="ResolveAppName"/>, this never interprets a hyphen in the
+    /// supplied name as a reference to someone else's container — a hyphen is just
+    /// a valid character in a container name (e.g. "my-app"). The caller's own
+    /// "username-" prefix is always applied unless the supplied name already starts
+    /// with it. This guarantees every newly created container is owned by its creator
+    /// and will be found by ownership-prefix filters (listing, quotas, etc.).
+    /// </summary>
+    protected static string ResolveNewAppName(Dictionary<string, string> parameters)
+    {
+        var name = parameters["name"];
+        var githubUsername = parameters["_githubUsername"];
+
+        var ownPrefix = $"{githubUsername}-";
+
+        return name.StartsWith(ownPrefix, StringComparison.OrdinalIgnoreCase)
+            ? SanitizeAppName(name)
+            : SanitizeAppName($"{githubUsername}-{name}");
+    }
+
 
 
     protected const string SqlcmdPath = "/opt/mssql-tools18/bin/sqlcmd";
