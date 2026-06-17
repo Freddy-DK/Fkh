@@ -89,17 +89,6 @@ jobs:
       is_beta: ${{ steps.meta.outputs.is_beta }}
       ref: ${{ steps.resolve.outputs.ref }}
     steps:
-
-      - name: Validate branch input
-        shell: pwsh
-        run: |
-          $branch = "${{ inputs.branch }}"
-          if ([string]::IsNullOrWhiteSpace($branch) -or $branch -eq 'main') {
-            Write-Host "Branch input is 'main' (new release from today's date)."
-          } else {
-            Write-Host "Branch input: $branch"
-          }
-
       - name: Resolve branch ref
         id: resolve
         shell: pwsh
