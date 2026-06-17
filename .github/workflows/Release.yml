@@ -1,7 +1,9 @@
 # ============================================================================
 # Release – Create a versioned release of Fkh
 # ============================================================================
-# MUST be triggered from Freddy-DK/Fkh@main. Fails otherwise.
+# MUST be triggered from Freddy-DK/Fkh@main. If triggered from another
+# branch, it automatically re-dispatches itself on main with the correct
+# branch input derived from the current branch name.
 #
 # Version scheme: YYYY.MMDD.revision (e.g. 2026.0616.1)
 #   - Release branch: releases/vYYYY.MMDD (e.g. releases/v2026.0616)
@@ -36,6 +38,7 @@ on:
         type: string
 
 permissions:
+  actions: write
   contents: write
   id-token: write
   packages: write
@@ -44,7 +47,40 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # ── Gate: re-dispatch to main when triggered from another branch ──────
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.check.outputs.proceed }}
+    steps:
+      - name: Guard – must run on Freddy-DK/Fkh
+        if: github.repository != 'Freddy-DK/Fkh'
+        run: |
+          echo "::error::This workflow must be triggered from Freddy-DK/Fkh. Current: ${{ github.repository }}"
+          exit 1
+
+      - name: Check branch
+        id: check
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ("${{ github.ref_name }}" -eq "main") {
+            "proceed=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            Write-Host "Running on main — proceeding with release."
+          } else {
+            $currentBranch = "${{ github.ref_name }}"
+            # Strip the 'releases/' prefix to get the branch input value
+            $branchInput = $currentBranch -replace '^releases/', ''
+            Write-Host "Triggered from '$currentBranch' — re-dispatching Release workflow on main with branch='$branchInput', beta=${{ inputs.beta }}"
+            gh workflow run Release.yml --ref main -f branch=$branchInput -f beta=${{ inputs.beta }}
+            Write-Host "Workflow dispatched successfully. Check the Actions tab for the new run."
+            "proceed=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          }
+
   release:
+    needs: gate
+    if: needs.gate.outputs.proceed == 'true'
     runs-on: ubuntu-latest
     outputs:
       tag_name: ${{ steps.meta.outputs.tag_name }}
@@ -52,11 +88,6 @@ jobs:
       is_beta: ${{ steps.meta.outputs.is_beta }}
       ref: ${{ steps.resolve.outputs.ref }}
     steps:
-      - name: Guard – must run on Freddy-DK/Fkh@main
-        if: github.repository != 'Freddy-DK/Fkh' || github.ref_name != 'main'
-        run: |
-          echo "::error::This workflow must be triggered from Freddy-DK/Fkh@main. Current: ${{ github.repository }}@${{ github.ref_name }}"
-          exit 1
 
       - name: Resolve branch ref
         id: resolve
