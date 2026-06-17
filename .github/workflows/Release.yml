@@ -33,10 +33,9 @@ on:
         type: boolean
         default: true
       branch:
-        description: 'Release branch (e.g. "v2026.0616") — "releases/" is prepended automatically. Use "main" for a new release. Only needed when running on main.'
+        description: 'Release branch (e.g. "v2026.0616"). Leave empty and use the branch selector instead.'
         required: false
         type: string
-        default: 'main'
 
 permissions:
   actions: write
@@ -92,8 +91,10 @@ jobs:
       - name: Resolve branch ref
         id: resolve
         shell: pwsh
+        env:
+          BRANCH: ${{ inputs.branch }}
         run: |
-          $branch = "${{ inputs.branch }}"
+          $branch = "$ENV:BRANCH"
           if ([string]::IsNullOrWhiteSpace($branch) -or $branch -eq 'main') {
             $ref = 'main'
           } else {
