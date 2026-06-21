@@ -89,7 +89,10 @@ sealed class UpdateDeploymentRepoCommand : ClientCommand
             return 1;
         }
 
-        // 2. Clone to temp directory
+        // 2. Configure git credential helper to use gh for push authentication
+        RunProcess("gh", ["auth", "setup-git"]);
+
+        // 3. Clone to temp directory
         var tempDir = Path.Combine(Path.GetTempPath(), $"fkh-deploy-{Guid.NewGuid():N}");
         Console.WriteLine($"Cloning {deployFullRepo}...");
         var (cloneExit, _, cloneErr) = RunProcess("gh", ["repo", "clone", deployFullRepo, tempDir]);
@@ -161,13 +164,15 @@ sealed class UpdateDeploymentRepoCommand : ClientCommand
             }
 
             // 4. Configure git identity, commit and push
-            var (_, ghName, _) = RunProcess("gh", ["api", "user", "--jq", ".login"]);
-            var (_, ghEmail, _) = RunProcess("gh", ["api", "user", "--jq", ".email // (.login + \"@users.noreply.github.com\")"]);
-            ghName = ghName?.Trim(); ghEmail = ghEmail?.Trim();
-            if (!string.IsNullOrEmpty(ghName))
-                RunProcess("git", ["config", "user.name", ghName], tempDir);
-            if (!string.IsNullOrEmpty(ghEmail))
-                RunProcess("git", ["config", "user.email", ghEmail], tempDir);
+            var (nameExit, ghName, _) = RunProcess("gh", ["api", "user", "--jq", ".login"]);
+            ghName = nameExit == 0 ? ghName?.Trim() : null;
+            if (string.IsNullOrEmpty(ghName))
+                ghName = "github-actions[bot]";
+            var ghEmail = nameExit == 0 && !string.IsNullOrWhiteSpace(ghName) && ghName != "github-actions[bot]"
+                ? $"{ghName}@users.noreply.github.com"
+                : "41898282+github-actions[bot]@users.noreply.github.com";
+            RunProcess("git", ["config", "user.name", ghName], tempDir);
+            RunProcess("git", ["config", "user.email", ghEmail], tempDir);
 
             RunProcess("git", ["add", "-A"], tempDir);
 
