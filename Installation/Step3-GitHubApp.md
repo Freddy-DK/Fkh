@@ -19,9 +19,13 @@ The app needs repository permissions and — if the web app is enabled — one o
 | Scope | Permission | Access | Why it is needed |
 |---|---|---|---|
 | Repository | Contents | Read & Write | Push commits when updating the deployment repo via `UpdateFkhVersion` workflow |
+| Repository | Workflows | Read & Write | Update `.github/workflows/` files when updating the deployment repo via `UpdateFkhVersion` workflow |
 | Repository | Actions | Read & Write | Dispatch the `CreateImages` workflow from the Fkh backend, and used by the deployment workflow when syncing outputs |
 | Repository | Secrets | Read & Write | Sync deployment outputs to repository secrets at the end of `Deploy Full Stack` |
 | Organization | Members | Read | *(Web app only)* Allows the backend to check team membership for users who authenticate via the device code flow |
+
+> **Note:** Contents (Read & Write) and Workflows (Read & Write) are only required if you use the `UpdateFkhVersion` workflow to automatically update your deployment repo. If you update workflow files using the fkh CLI manually, these two permissions can be left at **No access**.
+
 
 ---
 
@@ -43,6 +47,7 @@ The app needs repository permissions and — if the web app is enabled — one o
 | Permission | Access |
 |---|---|
 | Contents | Read & Write |
+| Workflows | Read & Write |
 | Actions | Read & Write |
 | Secrets | Read & Write |
 
