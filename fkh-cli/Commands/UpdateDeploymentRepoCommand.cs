@@ -35,20 +35,29 @@ sealed class UpdateDeploymentRepoCommand : ClientCommand
             return 1;
         }
 
-        // Resolve GitHub user account
+        var skipConfirm = parameters.TryGetValue("confirm", out var confirmVal) && string.Equals(confirmVal, "true", StringComparison.OrdinalIgnoreCase);
+
+        // Resolve GitHub user account (may fail for GitHub App tokens)
         var (userExit, ghUser, _) = RunProcess("gh", ["api", "user", "--jq", ".login"]);
         ghUser = ghUser?.Trim();
         if (userExit != 0 || string.IsNullOrWhiteSpace(ghUser))
         {
-            Console.Error.WriteLine($"{Ansi.Red}Failed to determine GitHub user. Ensure 'gh auth login' is complete.{Ansi.Reset}");
-            return 1;
+            // Fallback: try GitHub App identity
+            var (appExit, appName, _) = RunProcess("gh", ["api", "/app", "--jq", ".name"]);
+            appName = appName?.Trim();
+            if (appExit == 0 && !string.IsNullOrWhiteSpace(appName))
+                ghUser = $"{appName}[bot]";
+            else if (skipConfirm)
+                ghUser = "automation";
+            else
+            {
+                Console.Error.WriteLine($"{Ansi.Red}Failed to determine GitHub user. Ensure 'gh auth login' is complete.{Ansi.Reset}");
+                return 1;
+            }
         }
 
         // Resolve "latest" / "preview" to actual release tags
         fkhBranch = ResolveFkhBranch(fkhRepo, fkhBranch);
-
-        // Confirm before proceeding (skip with --confirm)
-        var skipConfirm = parameters.TryGetValue("confirm", out var confirmVal) && string.Equals(confirmVal, "true", StringComparison.OrdinalIgnoreCase);
         Console.WriteLine();
         Console.WriteLine($"  Action:          Update deployment repo");
         Console.WriteLine($"  Deployment repo: {deployFullRepo}");
