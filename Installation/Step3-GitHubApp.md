@@ -26,7 +26,6 @@ The app needs repository permissions and — if the web app is enabled — one o
 
 > **Note:** Contents (Read & Write) and Workflows (Read & Write) are only required if you use the `UpdateFkhVersion` workflow to automatically update your deployment repo. If you update workflow files using the fkh CLI manually, these two permissions can be left at **No access**.
 
-
 ---
 
 ## 3.1 — Create the GitHub App
