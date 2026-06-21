@@ -37,23 +37,17 @@ sealed class UpdateDeploymentRepoCommand : ClientCommand
 
         var skipConfirm = parameters.TryGetValue("confirm", out var confirmVal) && string.Equals(confirmVal, "true", StringComparison.OrdinalIgnoreCase);
 
-        // Resolve GitHub user account (may fail for GitHub App tokens)
+        // Resolve GitHub user account (only used for display; non-fatal in CI mode)
         var (userExit, ghUser, _) = RunProcess("gh", ["api", "user", "--jq", ".login"]);
         ghUser = ghUser?.Trim();
         if (userExit != 0 || string.IsNullOrWhiteSpace(ghUser))
         {
-            // Fallback: try GitHub App identity
-            var (appExit, appName, _) = RunProcess("gh", ["api", "/app", "--jq", ".name"]);
-            appName = appName?.Trim();
-            if (appExit == 0 && !string.IsNullOrWhiteSpace(appName))
-                ghUser = $"{appName}[bot]";
-            else if (skipConfirm)
-                ghUser = "automation";
-            else
+            if (!skipConfirm)
             {
                 Console.Error.WriteLine($"{Ansi.Red}Failed to determine GitHub user. Ensure 'gh auth login' is complete.{Ansi.Reset}");
                 return 1;
             }
+            ghUser = "automation";
         }
 
         // Resolve "latest" / "preview" to actual release tags
