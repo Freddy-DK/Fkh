@@ -100,16 +100,9 @@ jobs:
             --fkhRepo "${{ inputs.fkh-repo }}@${{ inputs.fkh-version }}" \
             --confirm
 
-  deploy:
-    needs: update
-    if: inputs.deploy
-    uses: Freddy-DK/Fkh/.github/workflows/DeployFkhFullStack.yml@main
-    permissions:
-      id-token: write
-      contents: read
-    with:
-      fkh-repo: ${{ inputs.fkh-repo }}
-      fkh-ref: ${{ inputs.fkh-version }}
-    secrets:
-      SQL_SA_PASSWORD: ${{ secrets.SQL_SA_PASSWORD }}
-      GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+      - name: Trigger Deploy Full Stack
+        if: inputs.deploy
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh workflow run "Deploy Full Stack" --repo "${{ github.repository }}"
