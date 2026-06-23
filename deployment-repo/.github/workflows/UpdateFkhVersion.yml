@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       fkh-version:
-        description: 'Fkh version to update to (e.g. v2026.616.2, main, latest, preview)'
+        description: 'Fkh version to update to (e.g. v2026.0616.2, main, latest, preview)'
         required: true
         type: string
         default: 'latest'
@@ -67,8 +67,29 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - name: Determine fkh CLI version
+        id: cli-version
+        shell: pwsh
+        run: |
+          $input = "${{ inputs.fkh-version }}"
+          if ($input -in 'main', 'preview') {
+            "args=--prerelease" >> $env:GITHUB_OUTPUT
+          } elseif ($input -eq 'latest') {
+            "args=" >> $env:GITHUB_OUTPUT
+          } else {
+            # Strip leading 'v', then remove leading zeros from 2nd segment
+            $v = $input.TrimStart('v')
+            $parts = $v -split '\.'
+            if ($parts.Length -ge 2) {
+              $parts[1] = $parts[1].TrimStart('0')
+              if ($parts[1] -eq '') { $parts[1] = '0' }
+            }
+            $version = $parts -join '.'
+            "args=--version $version" >> $env:GITHUB_OUTPUT
+          }
+
       - name: Install fkh CLI
-        run: dotnet tool install --global fkh
+        run: dotnet tool install --global fkh ${{ steps.cli-version.outputs.args }}
 
       - name: Run UpdateDeploymentRepo
         env:
