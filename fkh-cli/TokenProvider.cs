@@ -71,12 +71,19 @@ sealed class TokenProvider
 
     private static async Task<string> FetchOidcTokenAsync()
     {
+        // Azure DevOps OIDC — detected via DEVOPS_REQUEST_URL
+        var devopsRequestUrl = Environment.GetEnvironmentVariable("DEVOPS_REQUEST_URL");
+        if (!string.IsNullOrWhiteSpace(devopsRequestUrl))
+            return await FetchAdoOidcTokenAsync(devopsRequestUrl);
+
+        // GitHub Actions OIDC
         var requestUrl = Environment.GetEnvironmentVariable("ACTIONS_ID_TOKEN_REQUEST_URL");
         var requestToken = Environment.GetEnvironmentVariable("ACTIONS_ID_TOKEN_REQUEST_TOKEN");
 
         if (string.IsNullOrWhiteSpace(requestUrl))
             throw new InvalidOperationException(
-                "--useOIDC requires the ACTIONS_ID_TOKEN_REQUEST_URL environment variable (available in GitHub Actions with 'id-token: write' permission).");
+                "--useOIDC requires either GitHub Actions (ACTIONS_ID_TOKEN_REQUEST_URL + ACTIONS_ID_TOKEN_REQUEST_TOKEN with 'id-token: write' permission) " +
+                "or Azure DevOps (DEVOPS_REQUEST_URL + DEVOPS_TOKEN + DEVOPS_CONNECTION_ID) environment variables.");
 
         if (string.IsNullOrWhiteSpace(requestToken))
             throw new InvalidOperationException(
@@ -108,6 +115,46 @@ sealed class TokenProvider
 
         throw new InvalidOperationException(
             "OIDC token response did not contain a 'value' property with a valid token.");
+    }
+
+    private static async Task<string> FetchAdoOidcTokenAsync(string requestUrl)
+    {
+        var accessToken = Environment.GetEnvironmentVariable("DEVOPS_TOKEN");
+        if (string.IsNullOrWhiteSpace(accessToken))
+            throw new InvalidOperationException(
+                "--useOIDC with Azure DevOps requires the DEVOPS_TOKEN environment variable (set to $(System.AccessToken)).");
+
+        var connectionId = Environment.GetEnvironmentVariable("DEVOPS_CONNECTION_ID");
+        if (string.IsNullOrWhiteSpace(connectionId))
+            throw new InvalidOperationException(
+                "--useOIDC with Azure DevOps requires the DEVOPS_CONNECTION_ID environment variable (the service connection ID).");
+
+        // Azure DevOps OIDC endpoint: POST with service connection ID in the body
+        var url = $"{requestUrl.TrimEnd('/')}?api-version=7.1&serviceConnectionId={Uri.EscapeDataString(connectionId)}";
+
+        using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        using var request = new HttpRequestMessage(HttpMethod.Post, url);
+        request.Headers.Add("Authorization", $"Bearer {accessToken}");
+        request.Content = new StringContent("", System.Text.Encoding.UTF8, "application/json");
+
+        var response = await httpClient.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(
+                $"Failed to fetch OIDC token from Azure DevOps ({(int)response.StatusCode}): {body}");
+
+        // Azure DevOps OIDC endpoint returns { "oidcToken": "<token>" }
+        using var doc = JsonDocument.Parse(body);
+        if (doc.RootElement.TryGetProperty("oidcToken", out var tokenProp) && tokenProp.ValueKind == JsonValueKind.String)
+        {
+            var token = tokenProp.GetString();
+            if (!string.IsNullOrWhiteSpace(token))
+                return token;
+        }
+
+        throw new InvalidOperationException(
+            "Azure DevOps OIDC token response did not contain an 'oidcToken' property with a valid token.");
     }
 
     private string ResolveStaticToken()

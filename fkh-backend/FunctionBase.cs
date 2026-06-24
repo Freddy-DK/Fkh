@@ -22,6 +22,7 @@ public abstract class FunctionBase
     private static readonly List<OrgTeamConfig> SupportOrgTeams = LoadOrgTeamConfig("SUPPORT_ORG_TEAMS", required: false);
     private static readonly List<AllowedUserConfig> AllowedUsers = LoadAllowedUsers();
     private static readonly GitHubOidcService OidcService = new();
+    private static readonly AdoOidcService AdoOidcService = new();
 
     // ── Brute-force protection ───────────────────────────────────────────────────
     private const int MaxFailedAttempts = 3;
@@ -587,7 +588,22 @@ public abstract class FunctionBase
         var isAdmin = false;
         var isSupport = false;
 
-        if (GitHubOidcService.IsOidcToken(token))
+        if (AdoOidcService.IsAdoOidcToken(token))
+        {
+            var subject = await AdoOidcService.ValidateTokenAsync(token);
+            if (subject is null)
+            {
+                logger.LogError("Azure DevOps OIDC token validation failed or connection not in allow-list.");
+                RecordFailedAttempt(clientIp);
+                return (null, Respond(req, HttpStatusCode.Forbidden,
+                    "Azure DevOps OIDC token invalid or service connection not authorized. Check ALLOWED_ADO_CONNECTIONS configuration."));
+            }
+
+            username = subject.Replace("sc://", "").Replace('/', '-');
+            isAdmin = true;
+            logger.LogInformation("Received {Operation} request from ADO OIDC caller: {Subject} (username: {Username}, admin: true)", operationName, subject, username);
+        }
+        else if (GitHubOidcService.IsOidcToken(token))
         {
             var repository = await OidcService.ValidateTokenAsync(token);
             if (repository is null)

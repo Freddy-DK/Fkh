@@ -19,10 +19,3 @@ resource "azurerm_role_assignment" "aks_acr_pull" {
   principal_id         = azurerm_kubernetes_cluster.this.kubelet_identity[0].object_id
 }
 
-# ── Grant the managed identity AcrPush so GitHub Actions can push images ─────
-
-resource "azurerm_role_assignment" "function_acr_push" {
-  scope                = azurerm_container_registry.this.id
-  role_definition_name = "AcrPush"
-  principal_id         = azurerm_user_assigned_identity.function.principal_id
-}

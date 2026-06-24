@@ -165,6 +165,28 @@ allowed_oidc_repos = [
   # "my-company/my-bc-app"
 ]
 
+# Azure DevOps — service connections allowed to call Fkh via OIDC from Azure Pipelines.
+# Each entry requires a Workload Identity Federation service connection to be created in the
+# Azure DevOps project with the specified connection_name. The service connection must be
+# configured to trust the managed identity created by Terraform (output: ado_identity_client_id).
+#
+# To create the service connection in Azure DevOps:
+#   Project Settings → Service connections → New → Azure Resource Manager
+#     → Workload Identity Federation (manual)
+#   - Service connection name: must match devops_connection_name below
+#   - Issuer: https://vstoken.dev.azure.com/<devops_org_id>
+#   - Subject: sc://<devops_org>/<devops_project>/<devops_connection_name>
+#   - Client ID: use the ado_identity_client_id Terraform output
+#   - Tenant ID: your Azure AD tenant
+allowed_ado_connections = [
+  # {
+  #   devops_org_id          = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"   # Azure DevOps organization ID (found in Organization Settings → Overview)
+  #   devops_org             = "my-org"                                 # Azure DevOps organization name
+  #   devops_project         = "my-project"                             # Azure DevOps project name
+  #   devops_connection_name = "fkh-oidc"                               # Service connection name (must match exactly)
+  # }
+]
+
 # GitHub App — triggers image-build workflows in this deployment repo
 github_app_id              = "1234567"  # paste your App ID here
 github_app_client_id       = ""          # Client ID of the GitHub App (for web app OAuth login). Find it on the GitHub App settings page.

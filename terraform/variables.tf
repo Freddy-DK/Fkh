@@ -220,7 +220,27 @@ variable "allowed_users" {
 
 variable "allowed_oidc_repos" {
   description = "List of GitHub repositories (org/repo) allowed to authenticate via OIDC from GitHub Actions workflows."
-  type    = list(string)
+  type        = list(string)
+  default     = []
+}
+
+variable "allowed_ado_connections" {
+  description = <<-EOT
+    Azure DevOps service connections allowed to authenticate via OIDC.
+    Each entry requires a Workload Identity Federation service connection created in the
+    Azure DevOps project with the specified connection name, configured to trust the
+    managed identity created by this Terraform (output: ado_identity_client_id).
+    
+    Create the service connection in Azure DevOps:
+      Project Settings → Service connections → New → Azure Resource Manager → Workload Identity Federation (manual)
+      Set the Issuer and Subject from Terraform outputs (ado_federated_issuer, ado_federated_subjects).
+  EOT
+  type = list(object({
+    devops_org_id          = string
+    devops_org             = string
+    devops_project         = string
+    devops_connection_name = string
+  }))
   default = []
 }
 
