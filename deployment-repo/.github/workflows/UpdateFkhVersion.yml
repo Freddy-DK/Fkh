@@ -72,10 +72,10 @@ jobs:
         shell: pwsh
         run: |
           $input = "${{ inputs.fkh-version }}"
-          if ($input -in 'main', 'preview') {
-            "args=--prerelease" >> $env:GITHUB_OUTPUT
-          } elseif ($input -eq 'latest') {
+          if ($input -eq 'latest') {
             "args=" >> $env:GITHUB_OUTPUT
+          } elseif ($input -in 'main', 'preview' -or $input -notlike 'v20*') {
+            "args=--prerelease" >> $env:GITHUB_OUTPUT
           } else {
             # Strip leading 'v', then remove leading zeros from 2nd segment
             $v = $input.TrimStart('v')
