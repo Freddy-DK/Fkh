@@ -25,12 +25,39 @@ public class FkhStatus : FkhServiceBase
 
         // Check cluster power state first — if not running, return minimal status
         var powerState = await GetClusterPowerStateAsync(credential);
+
+        // Collect version/deployment info (same env vars as GetVersion)
+        string? clusterVersion = null, clusterDeployedAt = null;
+        try
+        {
+            var k8s = await GetKubernetesClientAsync();
+            var configMap = await k8s.CoreV1.ReadNamespacedConfigMapAsync("fkh-version", Namespace);
+            if (configMap?.Data is not null)
+            {
+                configMap.Data.TryGetValue("version", out clusterVersion);
+                configMap.Data.TryGetValue("deployed-at", out clusterDeployedAt);
+            }
+        }
+        catch { }
+
+        var versionInfo = new
+        {
+            BackendVersion = Environment.GetEnvironmentVariable("FKH_VERSION"),
+            BackendDeployedAt = Environment.GetEnvironmentVariable("DEPLOYED_AT"),
+            ClusterVersion = clusterVersion,
+            ClusterDeployedAt = clusterDeployedAt,
+            DeploymentRepo = Environment.GetEnvironmentVariable("DEPLOYMENT_REPO"),
+            FkhFork = Environment.GetEnvironmentVariable("FKH_FORK"),
+        };
+
         if (!string.Equals(powerState, "Running", StringComparison.OrdinalIgnoreCase))
         {
             return new
             {
                 Timestamp = DateTimeOffset.UtcNow,
                 ClusterPowerState = powerState ?? "Unknown",
+                BackendUrl = $"https://{Environment.GetEnvironmentVariable("WEBSITE_HOSTNAME")}/api",
+                Version = versionInfo,
                 Message = string.Equals(powerState, "Stopped", StringComparison.OrdinalIgnoreCase)
                     ? "The cluster is stopped. Use 'fkh startfkh' to start it."
                     : $"The cluster is currently {powerState?.ToLowerInvariant() ?? "unknown"}. Please wait for it to be fully running.",
@@ -49,6 +76,8 @@ public class FkhStatus : FkhServiceBase
         {
             Timestamp = DateTimeOffset.UtcNow,
             ClusterPowerState = powerState,
+            BackendUrl = $"https://{Environment.GetEnvironmentVariable("WEBSITE_HOSTNAME")}/api",
+            Version = versionInfo,
             Kubernetes = await kubeTask,
             Storage = await storageTask,
             Quota = await quotaTask,

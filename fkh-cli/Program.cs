@@ -48,7 +48,7 @@ try
         version = string.Join('.', version.Split('.').Select(s => s.TrimStart('0') is "" ? "0" : s.TrimStart('0')));
 
         string? backendVer = null, backendDeployedAt = null, clusterVer = null, clusterDeployedAt = null;
-        string? deploymentRepo = null, fkhFork = null;
+        string? deploymentRepo = null, fkhFork = null, backendUrl = null;
         int? forkAhead = null, forkBehind = null;
         string? mergeBaseSha = null, mergeBaseDate = null;
         bool backendAvailable = false;
@@ -62,6 +62,7 @@ try
             verSettings.User = FindArgValue(args, "ghUser") ?? Environment.GetEnvironmentVariable("GH_USER");
 
             var verEndpoint = $"{verSettings.BackendUrl!.TrimEnd('/')}/GetVersion";
+            backendUrl = verSettings.BackendUrl;
             var verTokenProvider = new TokenProvider(useOidc: useOidc, ghUser: verSettings.User);
             var verToken = await verTokenProvider.GetTokenAsync();
 
@@ -100,6 +101,7 @@ try
             var jsonObj = new Dictionary<string, object?>
             {
                 ["client_version"] = version,
+                ["backend_url"] = backendUrl,
                 ["backend_version"] = backendVer,
                 ["backend_deployed_at"] = backendDeployedAt,
                 ["cluster_version"] = clusterVer,
@@ -125,6 +127,8 @@ try
             {
                 Console.WriteLine($"Backend: {backendVer ?? "unknown"}{FormatDeployedAt(backendDeployedAt)}");
                 Console.WriteLine($"Cluster: {clusterVer ?? "unknown"}{FormatDeployedAt(clusterDeployedAt)}");
+                if (!string.IsNullOrEmpty(backendUrl))
+                    Console.WriteLine($"URL:     {backendUrl}");
                 if (!string.IsNullOrEmpty(deploymentRepo))
                     Console.WriteLine($"Repo:    {deploymentRepo}");
                 if (!string.IsNullOrEmpty(fkhFork))
