@@ -65,11 +65,11 @@ $apps = @(Get-NAVAppInfo @inArgs |
                     Version = $_.MinVersion.ToString()
                 }}
             }})
-            ExtensionType = $app.ExtensionType
-            Scope = $app.Scope
+            ExtensionType = $app.ExtensionType.ToString()
+            Scope = $app.Scope.ToString()
             IsInstalled = $app.IsInstalled
             IsPublished = $app.IsPublished
-            SyncState = $app.SyncState
+            SyncState = $app.SyncState.ToString()
             NeedsUpgrade = $app.NeedsUpgrade
         }}
     }})
