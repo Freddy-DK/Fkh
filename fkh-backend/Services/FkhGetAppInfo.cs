@@ -48,16 +48,31 @@ $inArgs = @{{
 }}
 
 $apps = @(Get-NAVAppInfo @inArgs |
-    ForEach-Object {{ Get-NAVAppInfo -Id ""$($_.AppId)"" -Publisher $_.Publisher -Name $_.Name -Version $_.Version @inArgs }} |
-    Select-Object @{{N='AppId';E={{$_.AppId.Value.ToString()}}}}, Name, Publisher, @{{N='Version';E={{$_.Version.ToString()}}}},
-        @{{N='Dependencies';E={{
-            $dependencies = @($_.Dependencies | ForEach-Object {{ $_ | Select-Object @{{N='Id';E={{
+    ForEach-Object {{
+        $app = Get-NAVAppInfo -Id ""$($_.AppId)"" -Publisher $_.Publisher -Name $_.Name -Version $_.Version @inArgs
+
+        [pscustomobject]@{{
+            AppId = $app.AppId.Value.ToString()
+            Name = $app.Name
+            Publisher = $app.Publisher
+            Version = $app.Version.ToString()
+            Dependencies = [object[]]@($app.Dependencies | ForEach-Object {{
                 $dependencyId = if ($_.Id) {{ $_.Id }} else {{ $_.AppId }}
-                if ($null -ne $dependencyId.Value) {{ $dependencyId.Value.ToString() }} else {{ $dependencyId.ToString() }}
-            }}}}, Publisher, Name, @{{N='Version';E={{$_.MinVersion.ToString()}}}} }})
-            $dependencies
-        }}}},
-        ExtensionType, Scope, IsInstalled, IsPublished, SyncState, NeedsUpgrade)
+                [pscustomobject]@{{
+                    Id = if ($null -ne $dependencyId.Value) {{ $dependencyId.Value.ToString() }} else {{ $dependencyId.ToString() }}
+                    Publisher = $_.Publisher
+                    Name = $_.Name
+                    Version = $_.MinVersion.ToString()
+                }}
+            }})
+            ExtensionType = $app.ExtensionType
+            Scope = $app.Scope
+            IsInstalled = $app.IsInstalled
+            IsPublished = $app.IsPublished
+            SyncState = $app.SyncState
+            NeedsUpgrade = $app.NeedsUpgrade
+        }}
+    }})
 
 ConvertTo-Json -InputObject $apps -Depth 10
 ";
