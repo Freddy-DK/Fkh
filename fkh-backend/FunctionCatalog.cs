@@ -935,6 +935,14 @@ public static class FunctionCatalog
                     Description = "Filter by app ID (exact match).",
                     Required = false,
                     DefaultValue = null
+                },
+                new()
+                {
+                    Name = "sort",
+                    Type = "boolean",
+                    Description = "Sort apps so dependencies are returned before apps that depend on them.",
+                    Required = false,
+                    DefaultValue = "false"
                 }
             }
         },
