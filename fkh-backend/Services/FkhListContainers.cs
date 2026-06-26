@@ -58,6 +58,9 @@ public class FkhListContainers : FkhServiceBase
                 return appLabel.StartsWith(usernamePrefix, StringComparison.OrdinalIgnoreCase);
             }).ToList();
 
+        var runningOnly = parameters.TryGetValue("runningOnly", out var runningOnlyValue)
+            && string.Equals(runningOnlyValue, "true", StringComparison.OrdinalIgnoreCase);
+
         if (filtered.Count == 0)
         {
             return new { Containers = Array.Empty<object>() };
@@ -209,6 +212,10 @@ public class FkhListContainers : FkhServiceBase
                     }
                 }
             }
+
+            // Skip non-running containers when --runningOnly is specified
+            if (runningOnly && status != "Running")
+                continue;
 
             containerResults.Add(new
             {

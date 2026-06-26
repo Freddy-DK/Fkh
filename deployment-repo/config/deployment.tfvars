@@ -49,6 +49,7 @@ state_location  = ""             # Azure region for the Terraform state resource
 #                                                                                    __/ |    
 #                                                                                   |___/     
 aks_sku_tier                 = "Free"             # Free (dev/test, no SLA) | Standard (99.95% SLA) | Premium (99.99% SLA)
+acr_sku                      = "Basic"            # Basic (dev/test) | Standard (production) | Premium (geo-replication)
 linux_vm_size                = "Standard_D4s_v5"  # v6 not supported for sqlserver
 windows_vm_size              = "Standard_D4s_v5"  # v6 not supported for hyhervisor gen1
 windows_min_node_count       = 0                  # Set to 1 to keep a warm Windows node (~$70-100/mo)
@@ -75,14 +76,19 @@ kubecost_enabled = false
 # Staging — deploy a staging Function App alongside production for testing backend changes
 enable_staging_backend = false
 
+# Web App — deploy a Static Web App for browser-based container management
+enable_web_app          = false
+static_web_app_location = "westeurope"   # Azure region for the Static Web App (not all regions supported, see https://aka.ms/swa/regions)
+
 # Function timeout — maximum execution time per request (in minutes). Also used by the CLI as its HTTP timeout.
 # Consumption plan maximum is 10 minutes.
 function_timeout_minutes = 10
 
 # SQL Server
 # sql_sa_password = ""  # set as GitHub Secret: SQL_SA_PASSWORD
-namespace        = "app"
-sql_storage_size = "128Gi"
+namespace           = "app"
+sql_storage_size    = "128Gi"
+sql_memory_limit_mb = 10240              # SQL Server max buffer pool memory in MB (default 10 GiB)
 
 
 #   _____            _        _                     _____      _   _   _                 
@@ -124,14 +130,33 @@ aad_app_additional_owner  = ""
 # Values are case-sensitive.
 
 # Member teams — users in these teams can provision containers
+# Format: { org = "<github-org>", team = "<team-slug>" }
+# The team slug is visible in the team URL: https://github.com/orgs/<org>/teams/<team-slug>
 allowed_org_teams = [
-  { org = "my-company",    team = "Fkh-members" },
-  { org = "partner-org",   team = "Fkh-members" }
+  # { org = "my-company",    team = "Fkh-members" },
+  # { org = "partner-org",   team = "Fkh-members" }
 ]
 
 # Admin teams — members get admin access (and also have normal access)
+# Format: { org = "<github-org>", team = "<team-slug>" }
+# The team slug is visible in the team URL: https://github.com/orgs/<org>/teams/<team-slug>
 admin_org_teams = [
-  { org = "my-company",    team = "Fkh-admins" }
+  # { org = "my-company",    team = "Fkh-admins" }
+]
+
+# Support teams — members get support access (permissions defined in the backend)
+# Format: { org = "<github-org>", team = "<team-slug>" }
+# The team slug is visible in the team URL: https://github.com/orgs/<org>/teams/<team-slug>
+support_org_teams = [
+  # { org = "my-company", team = "Fkh-supporters" }
+]
+
+# Explicit users — grant access by GitHub username without team membership
+# Format: { user = "<github-username>", role = "<role>" }
+# Role must be admin, member, or support
+allowed_users = [
+  # { user = "octocat", role = "member" },
+  # { user = "support-agent", role = "support" }
 ]
 
 # Repositories — GitHub repos allowed to call Fkh via OIDC from GitHub Actions
@@ -140,8 +165,29 @@ allowed_oidc_repos = [
   # "my-company/my-bc-app"
 ]
 
+# Azure DevOps — service connections allowed to call Fkh via OIDC from Azure Pipelines.
+# Create the service connection in Azure DevOps:
+#   Project Settings → Service connections → New → Azure Resource Manager
+#     → Workload Identity Federation (manual)
+#   - Service connection name: must match devops_connection_name below
+#   - Application (client) ID: use the ado_identity_client_id Terraform output
+#   - Tenant ID: your Azure AD tenant
+#   - Subscription ID/Name: your Azure subscription
+#   Save as draft, then copy the "Subject identifier" value into entra_subject below.
+#   Deploy Terraform to create the federated credential, then verify the connection in ADO.
+allowed_ado_connections = [
+  # {
+  #   devops_org_id          = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"   # Azure DevOps organization ID (open https://dev.azure.com/<org>/_apis/connectiondata and use the instanceId value)
+  #   devops_org             = "my-org"                                 # Azure DevOps organization name
+  #   devops_project         = "my-project"                             # Azure DevOps project name
+  #   devops_connection_name = "fkh-oidc"                               # Service connection name (must match exactly)
+  #   entra_subject          = "/eid1/c/pub/t/..."                      # Subject identifier from the ADO service connection form
+  # }
+]
+
 # GitHub App — triggers image-build workflows in this deployment repo
 github_app_id              = "1234567"  # paste your App ID here
+github_app_client_id       = ""          # Client ID of the GitHub App (for web app OAuth login). Find it on the GitHub App settings page.
 # github_app_private_key   = ""  # set as GitHub Secret: GH_APP_PRIVATE_KEY
 github_app_installation_id = "123456789"  # paste your Installation ID here
 

@@ -70,6 +70,26 @@ jobs:
           ref: ${{ inputs.fkh-ref }}
           path: fkh
 
+      # ── Compute fork status ───────────────────────────────────────────────
+      - name: Compute fork status
+        if: inputs.fkh-repo != 'Freddy-DK/Fkh'
+        id: fork
+        shell: bash
+        working-directory: fkh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          OWNER="${{ inputs.fkh-repo }}"
+          OWNER="${OWNER%%/*}"
+          if RESPONSE=$(gh api "repos/Freddy-DK/Fkh/compare/main...${OWNER}:${{ inputs.fkh-ref }}" 2>/dev/null); then
+            echo "ahead=$(echo "$RESPONSE" | jq -r '.ahead_by')" >> $GITHUB_OUTPUT
+            echo "behind=$(echo "$RESPONSE" | jq -r '.behind_by')" >> $GITHUB_OUTPUT
+            echo "merge_base_sha=$(echo "$RESPONSE" | jq -r '.merge_base_commit.sha')" >> $GITHUB_OUTPUT
+            echo "merge_base_date=$(echo "$RESPONSE" | jq -r '.merge_base_commit.commit.committer.date')" >> $GITHUB_OUTPUT
+          else
+            echo "::warning::Could not determine fork status — GitHub API call failed"
+          fi
+
       # ── Resolve tfvars ────────────────────────────────────────────────────
       - name: Resolve tfvars file
         id: tfvars
@@ -98,10 +118,23 @@ jobs:
           $subscriptionId = Get-TfVar "subscription_id" $varFile
           $tenantId       = Get-TfVar "tenant_id" $varFile
           $deployClientId = Get-TfVar "azure_deploy_client_id" $varFile
+          $deploymentName = Get-TfVar "fkhDeploymentName" $varFile
+          try { $githubAppClientId = Get-TfVar "github_app_client_id" $varFile } catch { $githubAppClientId = "" }
 
-          "subscription_id=$subscriptionId" >> $env:GITHUB_OUTPUT
-          "tenant_id=$tenantId"             >> $env:GITHUB_OUTPUT
-          "deploy_client_id=$deployClientId" >> $env:GITHUB_OUTPUT
+          $resourceGroupName = "fkh-$deploymentName"
+          $functionAppName   = "fkh-$deploymentName-backend"
+          $stagingAppName    = "fkh-$deploymentName-backend-staging"
+          $webAppName        = "fkh-$deploymentName-web"
+
+          "subscription_id=$subscriptionId"         >> $env:GITHUB_OUTPUT
+          "tenant_id=$tenantId"                     >> $env:GITHUB_OUTPUT
+          "deploy_client_id=$deployClientId"        >> $env:GITHUB_OUTPUT
+          "deployment_name=$deploymentName"         >> $env:GITHUB_OUTPUT
+          "resource_group_name=$resourceGroupName"  >> $env:GITHUB_OUTPUT
+          "function_app_name=$functionAppName"      >> $env:GITHUB_OUTPUT
+          "staging_function_app_name=$stagingAppName" >> $env:GITHUB_OUTPUT
+          "web_app_name=$webAppName"                >> $env:GITHUB_OUTPUT
+          "github_app_client_id=$githubAppClientId" >> $env:GITHUB_OUTPUT
 
           # Set ARM env vars for Terraform OIDC (used by all subsequent steps)
           "ARM_CLIENT_ID=$deployClientId"       >> $env:GITHUB_ENV
@@ -109,11 +142,6 @@ jobs:
           "ARM_SUBSCRIPTION_ID=$subscriptionId" >> $env:GITHUB_ENV
 
       # ── Tool setup ────────────────────────────────────────────────────────
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v4
-        with:
-          terraform_wrapper: false
-
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v5
         with:
@@ -129,73 +157,28 @@ jobs:
           tenant-id: ${{ steps.parse.outputs.tenant_id }}
           subscription-id: ${{ steps.parse.outputs.subscription_id }}
 
-      # ── Resolve function app name ─────────────────────────────────────────
-      - name: Resolve function app name and resource group
-        id: resolve
-        shell: pwsh
-        working-directory: fkh/terraform
+      # ── Stamp version into AKS ───────────────────────────────────────────
+      - name: Set fkh-version ConfigMap
         run: |
-          # Read from Terraform state
-          $varFile = "${{ steps.tfvars.outputs.tfvars_file }}"
-            function Get-TfVar([string]$Name, [string]$File) {
-              $line = Get-Content $File | Where-Object { $_ -match "^\s*$Name\s*=" } | Select-Object -First 1
-              if ($line -match '=\s*"([^"]+)"') { return $Matches[1] }
-              throw "Could not find $Name in $File"
-            }
-
-            $subscriptionId = Get-TfVar "subscription_id" $varFile
-            $deploymentName = Get-TfVar "fkhDeploymentName" $varFile
-
-            $stateRg        = "fkh-$deploymentName-state"
-            $stateAccount   = "fkh$($deploymentName.Replace('-','').Substring(0, [Math]::Min($deploymentName.Replace('-','').Length, 14)))state"
-
-            # Initialize Terraform to read state
-            terraform init -reconfigure `
-              -backend-config="resource_group_name=$stateRg" `
-              -backend-config="storage_account_name=$stateAccount" `
-              -backend-config="container_name=tfstate" `
-              -backend-config="key=$deploymentName.tfstate" `
-              -backend-config="subscription_id=$subscriptionId" `
-              -backend-config="use_azuread_auth=true"
-
-            $staging = "${{ inputs.staging }}" -eq "true"
-            if ($staging) {
-              $functionAppName = terraform output -raw staging_function_app_name
-              if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($functionAppName)) {
-                throw "Staging backend is not enabled. Set enable_staging_backend = true in deployment.tfvars and run a full deploy first."
-              }
-              Write-Host "Deploying to STAGING: $functionAppName"
-            }
-            else {
-              $functionAppName = terraform output -raw function_app_name
-              if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($functionAppName)) {
-                throw "Could not retrieve function_app_name from Terraform output."
-              }
-            }
-            $resourceGroupName = terraform output -raw resource_group_name
-            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($resourceGroupName)) {
-              throw "Could not retrieve resource_group_name from Terraform output."
-            }
-
-          "function_app_name=$functionAppName"     >> $env:GITHUB_OUTPUT
-          "resource_group_name=$resourceGroupName" >> $env:GITHUB_OUTPUT
-          Write-Host "Function App: $functionAppName"
-          Write-Host "Resource Group: $resourceGroupName"
-
-          # Also resolve staging app name for the auto-deploy-to-staging step
-          $stagingAppName = terraform output -raw staging_function_app_name 2>$null
-          if (-not [string]::IsNullOrWhiteSpace($stagingAppName)) {
-            "staging_function_app_name=$stagingAppName" >> $env:GITHUB_OUTPUT
-            Write-Host "Staging Function App: $stagingAppName"
-          }
+          AKS_RG="${{ steps.parse.outputs.resource_group_name }}"
+          AKS_NAME="fkh-${{ steps.parse.outputs.deployment_name }}-aks"
+          az aks get-credentials --resource-group "$AKS_RG" --name "$AKS_NAME" --overwrite-existing
+          kubectl create namespace app --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create configmap fkh-version \
+            --namespace app \
+            --from-literal=version="${{ inputs.fkh-ref }}" \
+            --from-literal=deployed-at="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --from-literal=deployment-repo="${{ github.repository }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
 
       # ── Publish function code ─────────────────────────────────────────────
       - name: Publish Azure Function
         shell: pwsh
         working-directory: fkh/fkh-backend
         run: |
-          $functionAppName   = "${{ steps.resolve.outputs.function_app_name }}"
-          $resourceGroupName = "${{ steps.resolve.outputs.resource_group_name }}"
+          $staging = "${{ inputs.staging }}" -eq "true"
+          $functionAppName   = if ($staging) { "${{ steps.parse.outputs.staging_function_app_name }}" } else { "${{ steps.parse.outputs.function_app_name }}" }
+          $resourceGroupName = "${{ steps.parse.outputs.resource_group_name }}"
 
           Write-Host "Publishing to $functionAppName in $resourceGroupName..."
 
@@ -210,14 +193,52 @@ jobs:
 
           Write-Host "Function app $functionAppName published successfully." -ForegroundColor Green
 
+      # ── Stamp version into app settings ───────────────────────────────────
+      - name: Set FKH_VERSION app setting
+        shell: pwsh
+        run: |
+          $staging = "${{ inputs.staging }}" -eq "true"
+          $functionAppName   = if ($staging) { "${{ steps.parse.outputs.staging_function_app_name }}" } else { "${{ steps.parse.outputs.function_app_name }}" }
+          $resourceGroupName = "${{ steps.parse.outputs.resource_group_name }}"
+          $version = "${{ inputs.fkh-ref }}"
+
+          $deploymentRepo = "${{ github.repository }}"
+          $deployedAt = (Get-Date -AsUTC -Format 'o')
+          $settings = @(
+            "FKH_VERSION=$version"
+            "DEPLOYMENT_REPO=$deploymentRepo"
+            "DEPLOYED_AT=$deployedAt"
+            "FKH_FORK=${{ inputs.fkh-repo }}"
+          )
+          $forkAhead = "${{ steps.fork.outputs.ahead }}"
+          if ($forkAhead) {
+            $settings += "FKH_FORK_AHEAD=$forkAhead"
+            $settings += "FKH_FORK_BEHIND=${{ steps.fork.outputs.behind }}"
+            $settings += "FKH_FORK_MERGE_BASE_SHA=${{ steps.fork.outputs.merge_base_sha }}"
+            $settings += "FKH_FORK_MERGE_BASE_DATE=${{ steps.fork.outputs.merge_base_date }}"
+          }
+          Write-Host "Setting app settings on $functionAppName..."
+          az functionapp config appsettings set `
+            --name $functionAppName `
+            --resource-group $resourceGroupName `
+            --settings @settings `
+            --output none
+
       # ── Also publish to staging (when deploying to production and staging exists) ──
       - name: Publish to staging
-        if: inputs.staging != true && steps.resolve.outputs.staging_function_app_name != ''
+        if: inputs.staging != true
         shell: pwsh
         working-directory: fkh/fkh-backend
         run: |
-          $stagingAppName    = "${{ steps.resolve.outputs.staging_function_app_name }}"
-          $resourceGroupName = "${{ steps.resolve.outputs.resource_group_name }}"
+          $stagingAppName    = "${{ steps.parse.outputs.staging_function_app_name }}"
+          $resourceGroupName = "${{ steps.parse.outputs.resource_group_name }}"
+
+          # Check if staging app actually exists
+          $exists = az functionapp show --name $stagingAppName --resource-group $resourceGroupName 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Staging backend not deployed — skipping." -ForegroundColor Yellow
+            exit 0
+          }
 
           Write-Host "Also publishing to staging: $stagingAppName..."
 
@@ -228,3 +249,51 @@ jobs:
           }
 
           Write-Host "Staging function app $stagingAppName published successfully." -ForegroundColor Green
+
+          # Stamp version on staging too
+          $version = "${{ inputs.fkh-ref }}"
+          $deploymentRepo = "${{ github.repository }}"
+          $deployedAt = (Get-Date -AsUTC -Format 'o')
+          $settings = @(
+            "FKH_VERSION=$version"
+            "DEPLOYMENT_REPO=$deploymentRepo"
+            "DEPLOYED_AT=$deployedAt"
+            "FKH_FORK=${{ inputs.fkh-repo }}"
+          )
+          $forkAhead = "${{ steps.fork.outputs.ahead }}"
+          if ($forkAhead) {
+            $settings += "FKH_FORK_AHEAD=$forkAhead"
+            $settings += "FKH_FORK_BEHIND=${{ steps.fork.outputs.behind }}"
+            $settings += "FKH_FORK_MERGE_BASE_SHA=${{ steps.fork.outputs.merge_base_sha }}"
+            $settings += "FKH_FORK_MERGE_BASE_DATE=${{ steps.fork.outputs.merge_base_date }}"
+          }
+          az functionapp config appsettings set `
+            --name $stagingAppName `
+            --resource-group $resourceGroupName `
+            --settings @settings `
+            --output none
+
+      # ── Build and deploy web app ───────────────────────────────────────
+      - name: Build and deploy web app
+        if: inputs.staging != true
+        shell: pwsh
+        working-directory: fkh/fkh-web
+        env:
+          VITE_GITHUB_CLIENT_ID: ${{ steps.parse.outputs.github_app_client_id }}
+          VITE_BACKEND_URL: https://fkh-${{ steps.parse.outputs.deployment_name }}-backend.azurewebsites.net/api
+        run: |
+          $webAppName        = "${{ steps.parse.outputs.web_app_name }}"
+          $resourceGroupName = "${{ steps.parse.outputs.resource_group_name }}"
+
+          # Get deployment token via az CLI (skips if web app doesn't exist)
+          $secretsJson = az staticwebapp secrets list --name $webAppName --resource-group $resourceGroupName 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Web app not deployed — skipping." -ForegroundColor Yellow
+            exit 0
+          }
+          $deployToken = ($secretsJson | ConvertFrom-Json).properties.apiKey
+
+          npm ci
+          npm run build
+          npx @azure/static-web-apps-cli deploy ./dist --deployment-token $deployToken --env production
+          Write-Host "Web app deployed successfully." -ForegroundColor Green

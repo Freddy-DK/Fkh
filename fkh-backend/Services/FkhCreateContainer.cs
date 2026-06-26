@@ -461,6 +461,7 @@ public class FkhCreateContainer : FkhServiceBase
         var envVars = new List<V1EnvVar>
         {
             new() { Name = "accept_eula", Value = "Y" },
+            new() { Name = "ACCEPT_OUTDATED", Value = "Y" },   // bypass BcContainerHelper 90-day age guard
             new() { Name = "username", Value = adminUsername },
             new()
             {
@@ -472,6 +473,7 @@ public class FkhCreateContainer : FkhServiceBase
             },
             new() { Name = "publicDnsName", Value = publicDnsName },
             new() { Name = "contactEMailForLetsEncrypt", Value = ContactEmail },
+            new() { Name = "enableApiServices", Value = "Y" },
             new() { Name = "folders", Value = FoldersValue },
             new()
             {
@@ -636,19 +638,21 @@ public class FkhCreateContainer : FkhServiceBase
                 Annotations = new Dictionary<string, string>
                 {
                     ["service.beta.kubernetes.io/azure-dns-label-name"] = dnsLabel,
-                    ["service.beta.kubernetes.io/azure-load-balancer-health-probe-protocol"] = "tcp"
+                    ["service.beta.kubernetes.io/azure-load-balancer-health-probe-protocol"] = "tcp",
+                    ["service.beta.kubernetes.io/azure-load-balancer-tcp-idle-timeout"] = "30"
                 }
             },
             Spec = new V1ServiceSpec
             {
                 Type = "LoadBalancer",
+                ExternalTrafficPolicy = "Local",
                 Selector = new Dictionary<string, string> { ["app"] = appName },
                 Ports = new List<V1ServicePort>
                 {
                     new() { Name = "http", Port = 80, TargetPort = 80 },
                     new() { Name = "https", Port = 443, TargetPort = 443 },
-                    new() { Name = "odata", Port = 7047, TargetPort = 7047 },
-                    new() { Name = "soap", Port = 7048, TargetPort = 7048 },
+                    new() { Name = "soap", Port = 7047, TargetPort = 7047 },
+                    new() { Name = "odata", Port = 7048, TargetPort = 7048 },
                     new() { Name = "dev", Port = 7049, TargetPort = 7049 },
                 }
             }

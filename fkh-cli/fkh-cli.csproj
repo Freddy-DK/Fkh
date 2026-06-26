@@ -8,9 +8,9 @@
     <ToolCommandName>fkh</ToolCommandName>
     <AssemblyName>fkh</AssemblyName>
     <PackageId>fkh</PackageId>
-    <Version>0.2.0</Version>
-    <Authors>Freddy DK</Authors>
-    <Description>FKH command line client</Description>
+    <Version>0.0.1</Version>
+    <Authors>Freddy Kristiansen</Authors>
+    <Description>FKh command line client</Description>
     <PackageIcon>icon.png</PackageIcon>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
@@ -22,6 +22,9 @@
   <ItemGroup>
     <None Include="icon.png" Pack="true" PackagePath="" />
     <None Include="README.md" Pack="true" PackagePath="" />
+    <EmbeddedResource Include="ALGoScripts/**/*">
+      <LogicalName>ALGoScripts/%(RecursiveDir)%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
     <None Include="fkh.settings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>

@@ -4,16 +4,14 @@ using System.Text.Json;
 /// <summary>
 /// Provides a uniform way to obtain and refresh authentication tokens.
 /// When --useOIDC is specified, fetches the token from GitHub Actions OIDC endpoint
-/// and automatically refreshes it every 3 minutes. When --oidcToken is specified,
-/// uses that token exclusively with no fallback. Otherwise falls back to the
-/// standard token resolution chain (OIDC_TOKEN, GH_TOKEN, gh auth token).
+/// and automatically refreshes it every 3 minutes. Otherwise falls back to the
+/// standard token resolution chain (GH_TOKEN, gh auth token).
 /// </summary>
 sealed class TokenProvider
 {
     private static readonly TimeSpan OidcRefreshInterval = TimeSpan.FromMinutes(3);
 
     private readonly bool _useOidc;
-    private readonly string? _explicitOidcToken;
     private readonly string? _ghUser;
 
     private string? _cachedToken;
@@ -23,19 +21,16 @@ sealed class TokenProvider
     /// Creates a TokenProvider.
     /// </summary>
     /// <param name="useOidc">If true, fetches OIDC token from GitHub Actions environment and skips all other mechanisms.</param>
-    /// <param name="explicitOidcToken">An explicit OIDC token passed via --oidcToken (only used when useOidc is false).</param>
     /// <param name="ghUser">GitHub user for gh auth token (only used when useOidc is false).</param>
-    public TokenProvider(bool useOidc, string? explicitOidcToken = null, string? ghUser = null)
+    public TokenProvider(bool useOidc, string? ghUser = null)
     {
         _useOidc = useOidc;
-        _explicitOidcToken = explicitOidcToken;
         _ghUser = ghUser;
     }
 
     /// <summary>
     /// Gets a valid token. If --useOIDC is active and the cached token is older than 3 minutes,
-    /// fetches a fresh one. If --oidcToken is specified, uses that exclusively.
-    /// For non-OIDC modes, returns the same token every time.
+    /// fetches a fresh one. For non-OIDC modes, returns the same token every time.
     /// </summary>
     public async Task<string> GetTokenAsync()
     {
@@ -48,10 +43,6 @@ sealed class TokenProvider
             }
             return _cachedToken;
         }
-
-        // --oidcToken is exclusive: use it directly, no fallback
-        if (!string.IsNullOrWhiteSpace(_explicitOidcToken))
-            return _explicitOidcToken;
 
         // Non-OIDC: resolve once and cache
         _cachedToken ??= ResolveStaticToken();
@@ -74,22 +65,25 @@ sealed class TokenProvider
             return _cachedToken;
         }
 
-        // --oidcToken is exclusive: use it directly, no fallback
-        if (!string.IsNullOrWhiteSpace(_explicitOidcToken))
-            return _explicitOidcToken;
-
         _cachedToken ??= ResolveStaticToken();
         return _cachedToken;
     }
 
     private static async Task<string> FetchOidcTokenAsync()
     {
+        // Azure DevOps OIDC — detected via DEVOPS_REQUEST_URL
+        var devopsRequestUrl = Environment.GetEnvironmentVariable("DEVOPS_REQUEST_URL");
+        if (!string.IsNullOrWhiteSpace(devopsRequestUrl))
+            return await FetchAdoOidcTokenAsync(devopsRequestUrl);
+
+        // GitHub Actions OIDC
         var requestUrl = Environment.GetEnvironmentVariable("ACTIONS_ID_TOKEN_REQUEST_URL");
         var requestToken = Environment.GetEnvironmentVariable("ACTIONS_ID_TOKEN_REQUEST_TOKEN");
 
         if (string.IsNullOrWhiteSpace(requestUrl))
             throw new InvalidOperationException(
-                "--useOIDC requires the ACTIONS_ID_TOKEN_REQUEST_URL environment variable (available in GitHub Actions with 'id-token: write' permission).");
+                "--useOIDC requires either GitHub Actions (ACTIONS_ID_TOKEN_REQUEST_URL + ACTIONS_ID_TOKEN_REQUEST_TOKEN with 'id-token: write' permission) " +
+                "or Azure DevOps (DEVOPS_REQUEST_URL + DEVOPS_TOKEN + DEVOPS_CONNECTION_ID) environment variables.");
 
         if (string.IsNullOrWhiteSpace(requestToken))
             throw new InvalidOperationException(
@@ -123,19 +117,54 @@ sealed class TokenProvider
             "OIDC token response did not contain a 'value' property with a valid token.");
     }
 
+    private static async Task<string> FetchAdoOidcTokenAsync(string requestUrl)
+    {
+        var accessToken = Environment.GetEnvironmentVariable("DEVOPS_TOKEN");
+        if (string.IsNullOrWhiteSpace(accessToken))
+            throw new InvalidOperationException(
+                "--useOIDC with Azure DevOps requires the DEVOPS_TOKEN environment variable (set to $(System.AccessToken)).");
+
+        var connectionId = Environment.GetEnvironmentVariable("DEVOPS_CONNECTION_ID");
+        if (string.IsNullOrWhiteSpace(connectionId))
+            throw new InvalidOperationException(
+                "--useOIDC with Azure DevOps requires the DEVOPS_CONNECTION_ID environment variable (the service connection ID).");
+
+        // Azure DevOps OIDC endpoint: POST with service connection ID in the body
+        var url = $"{requestUrl.TrimEnd('/')}?api-version=7.1&serviceConnectionId={Uri.EscapeDataString(connectionId)}";
+
+        using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        using var request = new HttpRequestMessage(HttpMethod.Post, url);
+        request.Headers.Add("Authorization", $"Bearer {accessToken}");
+        request.Content = new StringContent("", System.Text.Encoding.UTF8, "application/json");
+
+        var response = await httpClient.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(
+                $"Failed to fetch OIDC token from Azure DevOps ({(int)response.StatusCode}): {body}");
+
+        // Azure DevOps OIDC endpoint returns { "oidcToken": "<token>" }
+        using var doc = JsonDocument.Parse(body);
+        if (doc.RootElement.TryGetProperty("oidcToken", out var tokenProp) && tokenProp.ValueKind == JsonValueKind.String)
+        {
+            var token = tokenProp.GetString();
+            if (!string.IsNullOrWhiteSpace(token))
+                return token;
+        }
+
+        throw new InvalidOperationException(
+            "Azure DevOps OIDC token response did not contain an 'oidcToken' property with a valid token.");
+    }
+
     private string ResolveStaticToken()
     {
-        // 1. OIDC_TOKEN environment variable
-        var token = Environment.GetEnvironmentVariable("OIDC_TOKEN");
+        // 1. GH_TOKEN environment variable
+        var token = Environment.GetEnvironmentVariable("GH_TOKEN");
         if (!string.IsNullOrWhiteSpace(token))
             return token;
 
-        // 2. GH_TOKEN environment variable
-        token = Environment.GetEnvironmentVariable("GH_TOKEN");
-        if (!string.IsNullOrWhiteSpace(token))
-            return token;
-
-        // 3. gh auth token CLI
+        // 2. gh auth token CLI
         var psi = new ProcessStartInfo
         {
             FileName = "gh",

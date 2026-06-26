@@ -28,6 +28,12 @@ public sealed class FunctionDefinition
     /// OIDC callers are also rejected.
     /// </summary>
     public bool AdminOnly { get; init; }
+
+    /// <summary>
+    /// When true, clients should prompt for confirmation before invoking.
+    /// The function expects a "confirm" boolean parameter set to true.
+    /// </summary>
+    public bool RequiresConfirmation { get; init; }
 }
 
 public sealed class FunctionCatalogResponse

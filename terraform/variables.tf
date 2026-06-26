@@ -58,6 +58,17 @@ variable "aks_sku_tier" {
   }
 }
 
+variable "acr_sku" {
+  description = "Azure Container Registry pricing tier. 'Basic' for dev/test, 'Standard' for production, 'Premium' for geo-replication."
+  type        = string
+  default     = "Basic"
+
+  validation {
+    condition     = contains(["Basic", "Standard", "Premium"], var.acr_sku)
+    error_message = "acr_sku must be one of: Basic, Standard, Premium."
+  }
+}
+
 variable "windows_min_node_count" {
   description = "Minimum number of Windows nodes to keep running (0 = scale to zero, 1 = always keep a warm node)."
   type        = number
@@ -155,6 +166,12 @@ variable "sql_storage_size" {
   default     = "128Gi"
 }
 
+variable "sql_memory_limit_mb" {
+  description = "SQL Server max memory (buffer pool) in MB. Controls MSSQL_MEMORY_LIMIT_MB inside the container."
+  type        = number
+  default     = 10240
+}
+
 # ── GitHub ────────────────────────────────────────────────────────────────────
 
 # ── Function access config ────────────────────────────────────────────────────
@@ -176,9 +193,54 @@ variable "admin_org_teams" {
   default = []
 }
 
+variable "support_org_teams" {
+  description = "List of GitHub org/team pairs that grant support access. Support permissions are enforced in the backend."
+  type = list(object({
+    org  = string
+    team = string
+  }))
+  default = []
+}
+
+variable "allowed_users" {
+  description = "Explicit GitHub usernames and their roles (admin, member, or support). Checked in addition to team membership."
+  type = list(object({
+    user = string
+    role = string
+  }))
+  default = []
+
+  validation {
+    condition = alltrue([
+      for u in var.allowed_users : contains(["admin", "member", "support"], lower(u.role))
+    ])
+    error_message = "Each allowed_users entry must have role admin, member, or support."
+  }
+}
+
 variable "allowed_oidc_repos" {
   description = "List of GitHub repositories (org/repo) allowed to authenticate via OIDC from GitHub Actions workflows."
-  type    = list(string)
+  type        = list(string)
+  default     = []
+}
+
+variable "allowed_ado_connections" {
+  description = <<-EOT
+    Azure DevOps service connections allowed to authenticate via OIDC.
+    Each entry requires a Workload Identity Federation service connection in Azure DevOps.
+
+    Create the service connection in Azure DevOps:
+      Project Settings → Service connections → New → Azure Resource Manager
+        → Workload Identity Federation (manual)
+      Set the Client ID to the ado_identity_client_id Terraform output.
+  EOT
+  type = list(object({
+    devops_org_id          = string
+    devops_org             = string
+    devops_project         = string
+    devops_connection_name = string
+    entra_subject          = optional(string, "")
+  }))
   default = []
 }
 
@@ -196,6 +258,12 @@ variable "base_image" {
 variable "github_app_id" {
   description = "GitHub App ID for triggering image-build workflows."
   type        = string
+}
+
+variable "github_app_client_id" {
+  description = "Client ID of the GitHub App, used for OAuth login in the web app. Find it on the GitHub App settings page."
+  type        = string
+  default     = ""
 }
 
 variable "github_app_private_key" {
@@ -271,6 +339,18 @@ variable "enable_staging_backend" {
   description = "Deploy a staging Function App alongside production for testing backend changes."
   type        = bool
   default     = false
+}
+
+variable "enable_web_app" {
+  description = "Deploy the Fkh web app as an Azure Static Web App."
+  type        = bool
+  default     = false
+}
+
+variable "static_web_app_location" {
+  description = "Azure region for the Static Web App. Not all regions support Static Web Apps — westeurope and centralus are commonly available."
+  type        = string
+  default     = "westeurope"
 }
 
 variable "function_timeout_minutes" {

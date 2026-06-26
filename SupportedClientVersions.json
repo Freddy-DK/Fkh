@@ -1,0 +1,10 @@
+[
+  {
+    "version": 1,
+    "clients": [
+      { "client": "VS Code extension", "version": "latest" },
+      { "client": "CLI", "version": "latest" },
+      { "client": "Web App", "version": "latest" }
+    ]
+  }
+]

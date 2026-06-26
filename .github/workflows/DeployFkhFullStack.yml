@@ -41,6 +41,11 @@ on:
         required: false
         type: string
         default: 'main'
+      resilient-apply:
+        description: 'Auto-import resources that already exist in Azure (handles manual changes / state drift)'
+        required: false
+        type: boolean
+        default: false
     secrets:
       SQL_SA_PASSWORD:
         required: true
@@ -78,6 +83,26 @@ jobs:
           ref: ${{ inputs.fkh-ref }}
           path: fkh
 
+      # ── Compute fork status ───────────────────────────────────────────────
+      - name: Compute fork status
+        if: inputs.fkh-repo != 'Freddy-DK/Fkh'
+        id: fork
+        shell: bash
+        working-directory: fkh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          OWNER="${{ inputs.fkh-repo }}"
+          OWNER="${OWNER%%/*}"
+          if RESPONSE=$(gh api "repos/Freddy-DK/Fkh/compare/main...${OWNER}:${{ inputs.fkh-ref }}" 2>/dev/null); then
+            echo "ahead=$(echo "$RESPONSE" | jq -r '.ahead_by')" >> $GITHUB_OUTPUT
+            echo "behind=$(echo "$RESPONSE" | jq -r '.behind_by')" >> $GITHUB_OUTPUT
+            echo "merge_base_sha=$(echo "$RESPONSE" | jq -r '.merge_base_commit.sha')" >> $GITHUB_OUTPUT
+            echo "merge_base_date=$(echo "$RESPONSE" | jq -r '.merge_base_commit.commit.committer.date')" >> $GITHUB_OUTPUT
+          else
+            echo "::warning::Could not determine fork status — GitHub API call failed"
+          fi
+
       # ── Resolve tfvars ────────────────────────────────────────────────────
       - name: Resolve tfvars file
         id: tfvars
@@ -110,6 +135,7 @@ jobs:
             throw "fkhDeploymentName ('$deploymentName') must contain only lowercase letters and numbers. Uppercase, hyphens, and special characters are not allowed (Azure storage accounts require this)."
           }
           $githubAppId    = Get-TfVar "github_app_id" $varFile
+          try { $githubAppClientId = Get-TfVar "github_app_client_id" $varFile } catch { $githubAppClientId = "" }
           try { $stateLocation = Get-TfVar "state_location" $varFile } catch { $stateLocation = "" }
           if (-not $stateLocation) { $stateLocation = $location }
 
@@ -129,6 +155,7 @@ jobs:
           "state_location=$stateLocation"  >> $env:GITHUB_OUTPUT
           "deployment_name=$deploymentName" >> $env:GITHUB_OUTPUT
           "github_app_id=$githubAppId"    >> $env:GITHUB_OUTPUT
+          "github_app_client_id=$githubAppClientId" >> $env:GITHUB_OUTPUT
 
           # Set ARM env vars for Terraform OIDC (used by all subsequent steps)
           "ARM_CLIENT_ID=$deployClientId"       >> $env:GITHUB_ENV
@@ -239,30 +266,39 @@ jobs:
 
       # ── Bootstrap (AKS + core infra) ──────────────────────────────────────
       - name: Terraform bootstrap apply
+        shell: pwsh
         run: |
-          terraform apply \
-            -var-file="${{ steps.tfvars.outputs.tfvars_file }}" \
-            -target=azurerm_resource_group.this \
-            -target=azurerm_kubernetes_cluster.this \
-            -target=azurerm_kubernetes_cluster_node_pool.win \
-            -target=azurerm_kubernetes_cluster_node_pool.winspot \
-            -target=azurerm_container_registry.this \
-            -target=azurerm_role_assignment.aks_acr_pull \
-            -target=azurerm_role_assignment.function_acr_push \
-            -target=azurerm_storage_account.function \
-            -target=azurerm_storage_account.dbs \
-            -target=azurerm_service_plan.function \
-            -target=azurerm_log_analytics_workspace.this \
-            -target=azurerm_application_insights.this \
-            -target=azurerm_windows_function_app.this \
-            -target=azurerm_user_assigned_identity.function \
-            -target=azurerm_federated_identity_credential.github_actions \
-            -target=azurerm_role_assignment.function_aks \
-            -target=azurerm_role_assignment.function_dbs_storage \
-            -target=azurerm_role_assignment.function_log_analytics_reader \
-            -target=data.azuread_service_principal.msgraph \
-            -target=azuread_app_role_assignment.function_graph_app_owned \
-            -auto-approve
+          $varFile = "${{ steps.tfvars.outputs.tfvars_file }}"
+          $targets = @(
+            'azurerm_resource_group.this'
+            'azurerm_kubernetes_cluster.this'
+            'azurerm_kubernetes_cluster_node_pool.win'
+            'azurerm_kubernetes_cluster_node_pool.winspot'
+            'azurerm_container_registry.this'
+            'azurerm_role_assignment.aks_acr_pull'
+            'azurerm_role_assignment.function_acr_push'
+            'azurerm_storage_account.function'
+            'azurerm_storage_account.dbs'
+            'azurerm_service_plan.function'
+            'azurerm_log_analytics_workspace.this'
+            'azurerm_application_insights.this'
+            'azurerm_windows_function_app.this'
+            'azurerm_user_assigned_identity.function'
+            'azurerm_federated_identity_credential.github_actions'
+            'azurerm_role_assignment.function_aks'
+            'azurerm_role_assignment.function_dbs_storage'
+            'azurerm_role_assignment.function_log_analytics_reader'
+            'data.azuread_service_principal.msgraph'
+            'azuread_app_role_assignment.function_graph_app_owned'
+          )
+          if ('${{ inputs.resilient-apply }}' -eq 'true') {
+            ./Invoke-ResilientApply.ps1 -VarFile $varFile -Targets $targets
+          } else {
+            $tfArgs = @('apply', '-var-file', $varFile, '-auto-approve')
+            foreach ($t in $targets) { $tfArgs += '-target'; $tfArgs += $t }
+            terraform @tfArgs
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
       # ── Fetch AKS credentials ────────────────────────────────────────────
       - name: Fetch AKS credentials
@@ -271,12 +307,39 @@ jobs:
           AKS_NAME="fkh-${{ steps.parse.outputs.deployment_name }}-aks"
           az aks get-credentials --resource-group "$AKS_RG" --name "$AKS_NAME" --overwrite-existing
 
+      # ── Stamp version into AKS ───────────────────────────────────────────
+      - name: Set fkh-version ConfigMap
+        run: |
+          kubectl create namespace app --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create configmap fkh-version \
+            --namespace app \
+            --from-literal=version="${{ inputs.fkh-ref }}" \
+            --from-literal=deployed-at="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --from-literal=deployment-repo="${{ github.repository }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      # ── Build and push MSSQL FTS image to ACR ─────────────────────────────
+      - name: Build and push MSSQL FTS image
+        shell: pwsh
+        run: |
+          $acrName = terraform output -raw acr_name
+          $acrLoginServer = terraform output -raw acr_login_server
+          az acr login --name $acrName
+          $imageTag = "$acrLoginServer/mssql-server-fts:2022-latest"
+          docker build -t $imageTag ../mssql-fts
+          docker push $imageTag
+
       # ── Full Terraform apply ──────────────────────────────────────────────
       - name: Terraform apply
+        shell: pwsh
         run: |
-          terraform apply \
-            -var-file="${{ steps.tfvars.outputs.tfvars_file }}" \
-            -auto-approve
+          $varFile = "${{ steps.tfvars.outputs.tfvars_file }}"
+          if ('${{ inputs.resilient-apply }}' -eq 'true') {
+            ./Invoke-ResilientApply.ps1 -VarFile $varFile
+          } else {
+            terraform apply -var-file $varFile -auto-approve
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
       # ── Publish function code ─────────────────────────────────────────────
       - name: Publish Azure Function
@@ -301,6 +364,34 @@ jobs:
             Pop-Location
           }
 
+      - name: Set FKH_VERSION app setting
+        shell: pwsh
+        run: |
+          $functionAppName   = terraform output -raw function_app_name
+          $resourceGroupName = terraform output -raw resource_group_name
+          $version = "${{ inputs.fkh-ref }}"
+
+          $deployedAt = (Get-Date -AsUTC -Format 'o')
+          $settings = @(
+            "FKH_VERSION=$version"
+            "DEPLOYMENT_REPO=${{ github.repository }}"
+            "DEPLOYED_AT=$deployedAt"
+            "FKH_FORK=${{ inputs.fkh-repo }}"
+          )
+          $forkAhead = "${{ steps.fork.outputs.ahead }}"
+          if ($forkAhead) {
+            $settings += "FKH_FORK_AHEAD=$forkAhead"
+            $settings += "FKH_FORK_BEHIND=${{ steps.fork.outputs.behind }}"
+            $settings += "FKH_FORK_MERGE_BASE_SHA=${{ steps.fork.outputs.merge_base_sha }}"
+            $settings += "FKH_FORK_MERGE_BASE_DATE=${{ steps.fork.outputs.merge_base_date }}"
+          }
+          Write-Host "Setting app settings on $functionAppName..."
+          az functionapp config appsettings set `
+            --name $functionAppName `
+            --resource-group $resourceGroupName `
+            --settings @settings `
+            --output none
+
       - name: Publish Azure Function (staging)
         shell: pwsh
         run: |
@@ -322,6 +413,53 @@ jobs:
               throw "Staging func publish failed. Function app was restarted but new code was NOT deployed."
             }
             Write-Host "Staging function app $stagingAppName published successfully." -ForegroundColor Green
+          }
+          finally {
+            Pop-Location
+          }
+
+          # Stamp version on staging too
+          $version = "${{ inputs.fkh-ref }}"
+          $deployedAt = (Get-Date -AsUTC -Format 'o')
+          $settings = @(
+            "FKH_VERSION=$version"
+            "DEPLOYMENT_REPO=${{ github.repository }}"
+            "DEPLOYED_AT=$deployedAt"
+            "FKH_FORK=${{ inputs.fkh-repo }}"
+          )
+          $forkAhead = "${{ steps.fork.outputs.ahead }}"
+          if ($forkAhead) {
+            $settings += "FKH_FORK_AHEAD=$forkAhead"
+            $settings += "FKH_FORK_BEHIND=${{ steps.fork.outputs.behind }}"
+            $settings += "FKH_FORK_MERGE_BASE_SHA=${{ steps.fork.outputs.merge_base_sha }}"
+            $settings += "FKH_FORK_MERGE_BASE_DATE=${{ steps.fork.outputs.merge_base_date }}"
+          }
+          az functionapp config appsettings set `
+            --name $stagingAppName `
+            --resource-group $resourceGroupName `
+            --settings @settings `
+            --output none
+
+      # ── Build and deploy web app ───────────────────────────────────────
+      - name: Build and deploy web app
+        shell: pwsh
+        env:
+          VITE_GITHUB_CLIENT_ID: ${{ steps.parse.outputs.github_app_client_id }}
+          VITE_BACKEND_URL: https://fkh-${{ steps.parse.outputs.deployment_name }}-backend.azurewebsites.net/api
+        run: |
+          $deployToken = terraform output -raw web_app_deployment_token 2>$null
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($deployToken)) {
+            Write-Host "Web app not enabled — skipping." -ForegroundColor Yellow
+            return
+          }
+          $webPath = Resolve-Path "../fkh-web"
+          Push-Location $webPath
+          try {
+            npm ci
+            npm run build
+            # Deploy using SWA CLI
+            npx @azure/static-web-apps-cli deploy ./dist --deployment-token $deployToken --env production
+            Write-Host "Web app deployed successfully." -ForegroundColor Green
           }
           finally {
             Pop-Location
@@ -355,6 +493,7 @@ jobs:
         shell: pwsh
         run: |
           $functionUrl   = terraform output -raw function_url
+          $webAppUrl     = terraform output -raw web_app_url 2>$null
           $clusterName   = terraform output -raw cluster_name
           $resourceGroup = terraform output -raw resource_group_name
           $acrName       = terraform output -raw acr_name
@@ -363,24 +502,54 @@ jobs:
           $tfvarsFile = "${{ steps.tfvars.outputs.tfvars_file }}"
           $memberTeams = @()
           $adminTeams  = @()
+          $supportTeams = @()
+          $allowedUsers = @()
           $inMembers = $false
           $inAdmins  = $false
+          $inSupport = $false
+          $inUsers   = $false
           foreach ($line in Get-Content $tfvarsFile) {
             if ($line -match '^\s*allowed_org_teams\s*=') { $inMembers = $true; continue }
             if ($line -match '^\s*admin_org_teams\s*=')   { $inAdmins  = $true; continue }
+            if ($line -match '^\s*support_org_teams\s*=') { $inSupport = $true; continue }
+            if ($line -match '^\s*allowed_users\s*=')     { $inUsers   = $true; continue }
             if ($inMembers -and $line -match '^\s*\]')     { $inMembers = $false; continue }
             if ($inAdmins  -and $line -match '^\s*\]')     { $inAdmins  = $false; continue }
-            if (($inMembers -or $inAdmins) -and $line -match 'org\s*=\s*"([^"]+)".*team\s*=\s*"([^"]+)"') {
+            if ($inSupport -and $line -match '^\s*\]')     { $inSupport = $false; continue }
+            if ($inUsers   -and $line -match '^\s*\]')     { $inUsers   = $false; continue }
+            if (($inMembers -or $inAdmins -or $inSupport) -and $line -match 'org\s*=\s*"([^"]+)".*team\s*=\s*"([^"]+)"') {
               $entry = "$($Matches[1])/$($Matches[2])"
               if ($inMembers) { $memberTeams += $entry }
               if ($inAdmins)  { $adminTeams  += $entry }
+              if ($inSupport) { $supportTeams += $entry }
+            }
+            if ($inUsers -and $line -match 'user\s*=\s*"([^"]+)".*role\s*=\s*"([^"]+)"') {
+              $allowedUsers += "$($Matches[1]) ($($Matches[2]))"
             }
           }
 
-          $memberList = if ($memberTeams.Count -eq 0) { '(none configured)' } else { ($memberTeams | ForEach-Object { $org, $team = $_ -split '/', 2; "[$_](https://github.com/orgs/$org/teams/$team/members)" }) -join ', ' }
-          $adminList  = if ($adminTeams.Count -eq 0)  { '(none configured)' } else { ($adminTeams | ForEach-Object { $org, $team = $_ -split '/', 2; "[$_](https://github.com/orgs/$org/teams/$team/members)" }) -join ', ' }
+          $memberList  = if ($memberTeams.Count -eq 0)  { '(none configured)' } else { ($memberTeams | ForEach-Object { $org, $team = $_ -split '/', 2; "[$_](https://github.com/orgs/$org/teams/$team/members)" }) -join ', ' }
+          $adminList   = if ($adminTeams.Count -eq 0)   { '(none configured)' } else { ($adminTeams | ForEach-Object { $org, $team = $_ -split '/', 2; "[$_](https://github.com/orgs/$org/teams/$team/members)" }) -join ', ' }
+          $supportList = if ($supportTeams.Count -eq 0) { '(none configured)' } else { ($supportTeams | ForEach-Object { $org, $team = $_ -split '/', 2; "[$_](https://github.com/orgs/$org/teams/$team/members)" }) -join ', ' }
+          $usersList   = if ($allowedUsers.Count -eq 0) { '(none configured)' } else { $allowedUsers -join ', ' }
 
           # Job summary (rendered as Markdown on the run summary page)
+          $webAppRow = ""
+          $qrSection = ""
+          if ($webAppUrl) {
+            $webAppRow = "| **Web App** | [$webAppUrl]($webAppUrl) |"
+            $encodedUrl = [System.Uri]::EscapeDataString($webAppUrl)
+            $qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=$encodedUrl"
+            $qrSection = @"
+
+          ### Web App QR Code
+
+          Scan to open on your phone:
+
+          ![QR Code]($qrUrl)
+          "@
+          }
+
           $summary = @"
           ## Fkh Deployment Complete
 
@@ -393,6 +562,7 @@ jobs:
           | Resource | Value |
           |----------|-------|
           | **Backend URL** | ``$functionUrl`` |
+          $webAppRow
           | **AKS Cluster** | ``$clusterName`` |
           | **Resource Group** | ``$resourceGroup`` |
           | **Container Registry** | ``$acrName`` |
@@ -404,7 +574,9 @@ jobs:
           |------|-------|
           | **Members** (can provision containers) | $memberList |
           | **Admins** | $adminList |
-
+          | **Support** | $supportList |
+          | **Individual Users** | $usersList |
+          $qrSection
           "@
           $summary >> $env:GITHUB_STEP_SUMMARY
 

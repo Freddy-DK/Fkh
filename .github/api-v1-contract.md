@@ -13,7 +13,7 @@ Authorization: Bearer <github-token>
 ```
 
 Supported token types:
-- **GitHub Personal Access Token (PAT)** — validated via the GitHub API; org/team membership checked against `ALLOWED_ORG_TEAMS` / `ADMIN_ORG_TEAMS`
+- **GitHub Personal Access Token (PAT)** — validated via the GitHub API; org/team membership checked against `ALLOWED_ORG_TEAMS` / `ADMIN_ORG_TEAMS` / `SUPPORT_ORG_TEAMS`, or matched directly via `ALLOWED_USERS`
 - **GitHub OIDC token** — for CI/CD (GitHub Actions); repository validated against `ALLOWED_OIDC_REPOS`
 
 ### Brute-force protection

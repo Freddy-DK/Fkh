@@ -107,32 +107,4 @@ ConvertTo-Json -InputObject $result -Depth 5
         };
     }
 
-    private async Task<ExecResult> ExecInBcPodAsync(Kubernetes client, string podName, string containerName, string psScript)
-    {
-        var command = new[] { "powershell", "-NoProfile", "-Command", psScript };
-        var ws = await client.WebSocketNamespacedPodExecAsync(
-            podName, Namespace, command, containerName,
-            stderr: true, stdin: false, stdout: true, tty: false);
-
-        using var demux = new k8s.StreamDemuxer(ws);
-        demux.Start();
-
-        var stdoutStream = demux.GetStream(1, null);
-        var stderrStream = demux.GetStream(2, null);
-
-        using var stdoutReader = new StreamReader(stdoutStream);
-        using var stderrReader = new StreamReader(stderrStream);
-
-        var stdoutTask = stdoutReader.ReadToEndAsync();
-        var stderrTask = stderrReader.ReadToEndAsync();
-        await Task.WhenAll(stdoutTask, stderrTask);
-
-        var stderr = stderrTask.Result;
-        if (!string.IsNullOrWhiteSpace(stderr))
-        {
-            Logger.LogWarning("BC pod exec stderr: {StdErr}", stderr);
-        }
-
-        return new ExecResult(stdoutTask.Result, stderr);
-    }
 }

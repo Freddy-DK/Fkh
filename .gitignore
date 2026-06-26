@@ -4,6 +4,9 @@ fkh-backend/obj/
 fkh-cli/bin/
 fkh-cli/obj/
 
+# Language server cache
+*.lscache
+
 # VSIX extension dependencies, build output, and package output
 fkh-vsix/node_modules/
 fkh-vsix/out/

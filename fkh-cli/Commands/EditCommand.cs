@@ -79,6 +79,7 @@ sealed class EditCommand : ClientCommand
         {
             var request = new HttpRequestMessage(HttpMethod.Post, $"{backendUrl}/CopyFileFromContainer");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            AddProtocolHeaders(request);
             request.Content = new StringContent(
                 JsonSerializer.Serialize(new FunctionInvokeRequest
                 {
@@ -167,6 +168,7 @@ sealed class EditCommand : ClientCommand
 
             var request = new HttpRequestMessage(HttpMethod.Post, $"{backendUrl}/CopyFileToContainer");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            AddProtocolHeaders(request);
             request.Content = content;
 
             var response = await httpClient.SendAsync(request);

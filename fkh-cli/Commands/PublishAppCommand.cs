@@ -195,6 +195,7 @@ $appInfo | Select-Object Name, Publisher, @{{N='Version';E={{$_.Version.ToString
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{backendUrl}/CopyFileToContainer");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        AddProtocolHeaders(request);
 
         var multipart = new MultipartFormDataContent();
         var paramsDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -237,6 +238,7 @@ $appInfo | Select-Object Name, Publisher, @{{N='Version';E={{$_.Version.ToString
             {
                 using var request = new HttpRequestMessage(HttpMethod.Post, $"{backendUrl}/InvokeScript");
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                AddProtocolHeaders(request);
                 request.Content = new StringContent(
                     JsonSerializer.Serialize(new FunctionInvokeRequest
                     {
@@ -393,6 +395,7 @@ $appInfo | Select-Object Name, Publisher, @{{N='Version';E={{$_.Version.ToString
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, $"{backendUrl}/GetContainerDetails");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            AddProtocolHeaders(request);
             request.Content = new StringContent(
                 JsonSerializer.Serialize(new FunctionInvokeRequest
                 {

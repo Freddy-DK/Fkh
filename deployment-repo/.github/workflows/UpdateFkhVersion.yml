@@ -1,0 +1,108 @@
+# ============================================================================
+# Update Fkh Version – Self-update the deployment repo to a specific Fkh version
+# ============================================================================
+# Runs the fkh CLI's UpdateDeploymentRepo command against this repository,
+# using the GitHub App to authenticate and push the resulting commit.
+#
+# This updates all workflow references and template files to the specified
+# Fkh version (tag, branch, or "latest").
+#
+# ── Required GitHub Secrets ─────────────────────────────────────────────────
+#   GH_APP_PRIVATE_KEY   - PEM-encoded private key of the GitHub App
+#
+# The GitHub App ID is read from config/deployment.tfvars.
+# ============================================================================
+
+name: Update Fkh Version
+
+on:
+  workflow_dispatch:
+    inputs:
+      fkh-version:
+        description: 'Fkh version to update to (e.g. v2026.0616.2, main, latest, preview)'
+        required: true
+        type: string
+        default: 'latest'
+      fkh-repo:
+        description: 'Fkh fork (e.g. Freddy-DK/Fkh). Leave empty to keep current.'
+        required: false
+        type: string
+        default: 'Freddy-DK/Fkh'
+      deploy:
+        description: 'Run Deploy Full Stack after updating'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout deployment repo
+        uses: actions/checkout@v6
+
+      - name: Parse GitHub App ID from tfvars
+        id: app
+        shell: pwsh
+        run: |
+          $line = Get-Content config/deployment.tfvars | Where-Object { $_ -match '^\s*github_app_id\s*=' } | Select-Object -First 1
+          if ($line -match '=\s*"([^"]+)"') {
+            "app_id=$($Matches[1])" >> $env:GITHUB_OUTPUT
+          } else {
+            throw "Could not find github_app_id in config/deployment.tfvars"
+          }
+
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ steps.app.outputs.app_id }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Determine fkh CLI version
+        id: cli-version
+        shell: pwsh
+        run: |
+          $input = "${{ inputs.fkh-version }}"
+          if ($input -eq 'latest') {
+            "args=" >> $env:GITHUB_OUTPUT
+          } elseif ($input -in 'main', 'preview' -or $input -notlike 'v20*') {
+            "args=--prerelease" >> $env:GITHUB_OUTPUT
+          } else {
+            # Strip leading 'v', then remove leading zeros from 2nd segment
+            $v = $input.TrimStart('v')
+            $parts = $v -split '\.'
+            if ($parts.Length -ge 2) {
+              $parts[1] = $parts[1].TrimStart('0')
+              if ($parts[1] -eq '') { $parts[1] = '0' }
+            }
+            $version = $parts -join '.'
+            "args=--version $version" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Install fkh CLI
+        run: dotnet tool install --global fkh ${{ steps.cli-version.outputs.args }}
+
+      - name: Run UpdateDeploymentRepo
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          fkh updatedeploymentrepo \
+            --deploymentRepo "${{ github.repository }}" \
+            --fkhRepo "${{ inputs.fkh-repo }}@${{ inputs.fkh-version }}" \
+            --confirm
+
+      - name: Trigger Deploy Full Stack
+        if: inputs.deploy
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh workflow run "Deploy Full Stack" --repo "${{ github.repository }}"

@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'fkh-vsix/**'
+      - 'fkh-cli/**'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build-vsix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: fkh-vsix
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set dev version
+        id: version
+        shell: pwsh
+        run: |
+          $now = Get-Date
+          $devVersion = "0.$($now.Year).$($now.ToString('MMddHHmm'))"
+          Write-Host "Setting dev version: $devVersion"
+          "value=$devVersion" >> $env:GITHUB_OUTPUT
+          npm version $devVersion --no-git-tag-version --allow-same-version
+          # Append (Dev) to display name
+          $pkg = Get-Content package.json | ConvertFrom-Json
+          $pkg.displayName = "$($pkg.displayName) (Dev)"
+          $pkg | ConvertTo-Json -Depth 10 | Set-Content package.json
+
+      - name: Build
+        run: |
+          npm run build:node
+          npm run build:web
+
+      - name: Copy LICENSE
+        run: cp ../LICENSE .
+
+      - name: Package VSIX
+        run: npx vsce package
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: fkh-vsix-${{ steps.version.outputs.value }}
+          path: fkh-vsix/*.vsix
+
+  build-cli:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: fkh-cli
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Set dev version
+        id: version
+        shell: pwsh
+        run: |
+          $now = Get-Date
+          $devVersion = "0.$($now.Year).$($now.ToString('MMddHHmm'))"
+          Write-Host "Setting dev version: $devVersion"
+          "value=$devVersion" >> $env:GITHUB_OUTPUT
+          $csproj = Get-Content fkh-cli.csproj -Raw
+          $csproj = $csproj -replace '<Version>[^<]*</Version>', "<Version>$devVersion</Version>"
+          # Pin AssemblyVersion to avoid 65535 overflow on the large patch number
+          $csproj = $csproj -replace '</PropertyGroup>', "  <AssemblyVersion>0.0.0.0</AssemblyVersion>`n    <FileVersion>0.0.0.0</FileVersion>`n  </PropertyGroup>"
+          $csproj = $csproj -replace '<Description>[^<]*</Description>', '<Description>FKh command line client (Dev)</Description>'
+          Set-Content fkh-cli.csproj $csproj
+
+      - name: Build
+        run: dotnet build -c Release
+
+      - name: Pack
+        run: dotnet pack -c Release -o ./nupkg --no-build
+
+      - name: Upload NuGet artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: fkh-cli-${{ steps.version.outputs.value }}
+          path: fkh-cli/nupkg/*.nupkg

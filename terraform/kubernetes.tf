@@ -134,6 +134,10 @@ resource "kubernetes_deployment" "mssql" {
   spec {
     replicas = 1
 
+    strategy {
+      type = "Recreate"
+    }
+
     selector {
       match_labels = {
         app = "mssql"
@@ -159,7 +163,7 @@ resource "kubernetes_deployment" "mssql" {
         # Init container to fix permissions on mounted volumes
         init_container {
           name  = "fix-permissions"
-          image = "mcr.microsoft.com/mssql/server:2022-latest"
+          image = "${azurerm_container_registry.this.login_server}/mssql-server-fts:2022-latest"
 
           command = ["/bin/bash", "-c", "chown -R 10001:0 /var/opt/mssql/data /var/opt/mssql/log"]
 
@@ -182,7 +186,7 @@ resource "kubernetes_deployment" "mssql" {
 
         container {
           name  = "mssql"
-          image = "mcr.microsoft.com/mssql/server:2022-latest"
+          image = "${azurerm_container_registry.this.login_server}/mssql-server-fts:2022-latest"
 
           port {
             container_port = 1433
@@ -214,6 +218,11 @@ resource "kubernetes_deployment" "mssql" {
             value = "/var/opt/mssql/log"
           }
 
+          env {
+            name  = "MSSQL_MEMORY_LIMIT_MB"
+            value = tostring(var.sql_memory_limit_mb)
+          }
+
           volume_mount {
             name       = "mssql-data"
             mount_path = "/var/opt/mssql/data"
@@ -230,10 +239,6 @@ resource "kubernetes_deployment" "mssql" {
             requests = {
               memory = "2Gi"
               cpu    = "500m"
-            }
-            limits = {
-              memory = "4Gi"
-              cpu    = "2"
             }
           }
 

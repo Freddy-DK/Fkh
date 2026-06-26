@@ -34,10 +34,9 @@ Create a settings file with:
 
 Authentication is resolved in this order:
 
-1. `--oidcToken <token>` — GitHub Actions OIDC token passed on the command line
-2. `OIDC_TOKEN` environment variable
-3. `GH_TOKEN` environment variable
-4. `gh auth token` — GitHub CLI (interactive fallback). Use `--ghUser <user>` to target a specific GitHub account.
+1. `--useOIDC` — Fetch OIDC token from GitHub Actions environment (auto-refreshes)
+2. `GH_TOKEN` environment variable
+3. `gh auth token` — GitHub CLI (interactive fallback). Use `--ghUser <user>` to target a specific GitHub account.
 
 ### Access Control
 
@@ -60,7 +59,7 @@ fkh <command> [--key "value" ...]
 
 | Option | Description |
 |--------|-------------|
-| `--oidcToken <token>` | Use a GitHub Actions OIDC token instead of `gh auth` |
+| `--useOIDC` | Fetch OIDC token from GitHub Actions (auto-refreshes) |
 | `--ghUser <user>` | GitHub user account for `gh auth token -u <user>` |
 | `--backendUrl <url>` | Override the backend URL (takes priority over env/settings) |
 | `--nowait` | Don't wait for completion (applies to `createcontainer`, `createimage`) |
@@ -213,14 +212,6 @@ permissions:
   id-token: write
 
 steps:
-  - name: Get OIDC token
-    id: oidc
-    run: |
-      TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-        "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=fkh" | jq -r '.value')
-      echo "::add-mask::$TOKEN"
-      echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
-
   - name: Create container
-    run: fkh createcontainer --name mybc --artifactUrl "///us/latest" --oidcToken "${{ steps.oidc.outputs.token }}"
+    run: fkh createcontainer --name mybc --artifactUrl "///us/latest" --useOIDC
 ```

@@ -18,7 +18,7 @@ public class AutoStopFunction
     }
 
     [Function("AutoStop")]
-    public async Task RunAsync([TimerTrigger("0 */30 * * * *")] TimerInfo timerInfo)
+    public async Task RunAsync([TimerTrigger("0 */1 * * * *")] TimerInfo timerInfo)
     {
         try
         {

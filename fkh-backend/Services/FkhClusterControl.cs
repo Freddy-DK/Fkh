@@ -7,16 +7,38 @@ namespace Fkh.Services;
 
 public class FkhClusterControl : FkhServiceBase
 {
-    public FkhClusterControl(ILogger<FkhClusterControl> logger) : base(logger) { }
+    private readonly FkhScaleContainer _scaleContainer;
+
+    public FkhClusterControl(ILogger<FkhClusterControl> logger, FkhScaleContainer scaleContainer) : base(logger)
+    {
+        _scaleContainer = scaleContainer;
+    }
 
     public async Task<object> StopClusterAsync(Dictionary<string, string> parameters)
     {
+        if (!parameters.TryGetValue("confirm", out var confirm) ||
+            !string.Equals(confirm, "true", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("This will stop the entire AKS cluster and all containers. Pass --confirm to proceed.");
+        }
+
         var cluster = GetClusterResource();
         var data = (await cluster.GetAsync()).Value.Data;
         var powerState = data.PowerStateCode?.ToString();
 
         if (string.Equals(powerState, "Stopped", StringComparison.OrdinalIgnoreCase))
             return new { Message = "Cluster is already stopped.", PowerState = "Stopped" };
+
+        // Stop all containers before shutting down the cluster
+        try
+        {
+            Logger.LogInformation("Stopping all containers before cluster shutdown...");
+            await _scaleContainer.StopAllContainersAsync(parameters);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to stop containers before cluster shutdown. Proceeding with cluster stop.");
+        }
 
         Logger.LogInformation("Stopping AKS cluster {Cluster} in resource group {RG}...", ClusterName, ResourceGroup);
         await cluster.StopAsync(Azure.WaitUntil.Started);

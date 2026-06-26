@@ -1,0 +1,410 @@
+# ============================================================================
+# Release – Create a versioned release of Fkh
+# ============================================================================
+# MUST be triggered from Freddy-DK/Fkh@main. If triggered from another
+# branch, it automatically re-dispatches itself on main with the correct
+# branch input derived from the current branch name.
+#
+# Version scheme: YYYY.MMDD.revision (e.g. 2026.0616.1)
+#   - Release branch: releases/vYYYY.MMDD (e.g. releases/v2026.0616)
+#   - Git tag:        vYYYY.MMDD.revision (e.g. v2026.0616.1)
+#   - VSIX:           YYYY.MMDD.revision
+#   - NuGet stable:   YYYY.MMDD.revision
+#   - NuGet beta:     YYYY.MMDD.revision-prerelease
+#
+# Inputs:
+#   - beta: whether this is a pre-release
+#   - branch: the release branch suffix (e.g. "v2026.0616")
+#             "releases/" is prepended automatically.
+#             Use "main" to create a new release branch from today's date.
+#
+# Revision auto-increments based on existing tags for that branch.
+# Deployment repos can reference release tags as the fkh-ref input.
+# ============================================================================
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      beta:
+        description: 'Beta release'
+        required: true
+        type: boolean
+        default: true
+      branch:
+        description: 'Release from branch (e.g. "v2026.0616"). Leave empty and use the branch selector instead.'
+        required: false
+        type: string
+
+permissions:
+  actions: write
+  contents: write
+  id-token: write
+  packages: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # ── Gate: re-dispatch to main when triggered from another branch ──────
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.check.outputs.proceed }}
+    steps:
+      - name: Guard – must run on Freddy-DK/Fkh
+        if: github.repository != 'Freddy-DK/Fkh'
+        run: |
+          echo "::error::This workflow must be triggered from Freddy-DK/Fkh. Current: ${{ github.repository }}"
+          exit 1
+
+      - name: Check branch
+        id: check
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ("${{ github.ref_name }}" -eq "main") {
+            "proceed=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            Write-Host "Running on main — proceeding with release."
+          } else {
+            $currentBranch = "${{ github.ref_name }}"
+            # Strip the 'releases/' prefix to get the branch input value
+            $branchInput = $currentBranch -replace '^releases/', ''
+            Write-Host "Triggered from '$currentBranch' — re-dispatching Release workflow on main with branch='$branchInput', beta=${{ inputs.beta }}"
+            gh workflow run Release.yml --repo ${{ github.repository }} --ref main -f branch=$branchInput -f beta=${{ inputs.beta }}
+            Write-Host "Workflow dispatched successfully. Check the Actions tab for the new run."
+            "proceed=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          }
+
+  release:
+    needs: gate
+    if: needs.gate.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      tag_name: ${{ steps.meta.outputs.tag_name }}
+      version: ${{ steps.meta.outputs.version }}
+      is_beta: ${{ steps.meta.outputs.is_beta }}
+      ref: ${{ steps.resolve.outputs.ref }}
+    steps:
+      - name: Resolve branch ref
+        id: resolve
+        shell: pwsh
+        env:
+          BRANCH: ${{ inputs.branch }}
+        run: |
+          $branch = "$ENV:BRANCH"
+          if ([string]::IsNullOrWhiteSpace($branch) -or $branch -eq 'main') {
+            $ref = 'main'
+          } else {
+            $ref = "releases/$branch"
+          }
+          "ref=$ref" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Resolved ref: $ref"
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.resolve.outputs.ref }}
+          fetch-depth: 0
+
+      - name: Validate branch exists
+        if: inputs.branch != 'main' && inputs.branch != ''
+        shell: pwsh
+        run: |
+          $ref = "${{ steps.resolve.outputs.ref }}"
+          $exists = git ls-remote --heads origin "refs/heads/$ref" 2>$null
+          if (-not $exists) {
+            Write-Error "Branch '$ref' does not exist on origin."
+            exit 1
+          }
+
+      - name: Determine version and create branch
+        id: meta
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $isBeta = [bool]::Parse("${{ inputs.beta }}")
+          $branch = "${{ steps.resolve.outputs.ref }}"
+          $fromMain = $branch -eq 'main'
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if ($fromMain) {
+            # Version base from today's date: YYYY.MMDD
+            $version = Get-Date -Format 'yyyy.MMdd'
+            $releaseBranch = "releases/v$version"
+
+            # Fail early if branch already exists
+            $branchExists = git ls-remote --heads origin "refs/heads/$releaseBranch" 2>$null
+            if ($branchExists) {
+              Write-Error "Release branch '$releaseBranch' already exists. Run the workflow with that branch name to create additional releases."
+              exit 1
+            }
+
+            # Create release branch
+            git checkout -b $releaseBranch
+            git push origin $releaseBranch
+            Write-Host "Created release branch: $releaseBranch"
+          } else {
+            # Running from a release branch — extract version from branch name
+            if ($branch -notmatch '^releases/v(\d{4}\.\d{4})$') {
+              Write-Error "Branch '$branch' is not a valid release branch. Expected format: releases/vYYYY.MMDD"
+              exit 1
+            }
+            $version = $Matches[1]
+          }
+
+          # Find existing tags for this version to determine next revision
+          $existingRevisions = git tag -l "v$version.*" | ForEach-Object {
+            if ($_ -match "^v[\d.]+\.(\d+)$") { [int]$Matches[1] }
+          } | Sort-Object -Descending
+          $nextRevision = if ($existingRevisions) { $existingRevisions[0] + 1 } else { 1 }
+
+          $tagName = "v$version.$nextRevision"
+
+          # Determine if this is the latest release branch (highest version)
+          $allReleaseBranches = git branch -r --list 'origin/releases/v*' | ForEach-Object {
+            $_.Trim() -replace '^origin/', ''
+          } | Sort-Object -Descending
+          $latestReleaseBranch = $allReleaseBranches | Select-Object -First 1
+
+          $currentReleaseBranch = if ($fromMain) { "releases/v$version" } else { $branch }
+          $isLatest = ($currentReleaseBranch -eq $latestReleaseBranch) -or $fromMain
+
+          "tag_name=$tagName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "is_beta=$($isBeta.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "is_latest=$($isLatest.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "version=$version.$nextRevision" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+          Write-Host "Version: $version.$nextRevision"
+          Write-Host "Tag: $tagName"
+          Write-Host "Beta: $isBeta"
+          Write-Host "Is latest release: $isLatest"
+
+      - name: Create release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tagName = "${{ steps.meta.outputs.tag_name }}"
+          $isBeta = "${{ steps.meta.outputs.is_beta }}" -eq 'true'
+          $isLatest = "${{ steps.meta.outputs.is_latest }}" -eq 'true'
+
+          $args = @()
+          if ($isBeta) { $args += '--prerelease' }
+          if ($isLatest -and -not $isBeta) { $args += '--latest' } else { $args += '--latest=false' }
+          $args += '--generate-notes'
+
+          $targetSha = git rev-parse HEAD
+          gh release create $tagName --title $tagName --target $targetSha @args
+
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Deploy VSIX to VS Code Marketplace and Open VSX
+  # ══════════════════════════════════════════════════════════════════════════
+  deploy-vsix:
+    needs: release
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fkh-vsix
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release.outputs.ref }}
+
+      - name: Check VSCE_PAT
+        id: check-vsce
+        run: |
+          if [ -n "$VSCE_PAT" ]; then echo "available=true" >> "$GITHUB_OUTPUT"; fi
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      - name: Check OVSX_PAT
+        id: check-ovsx
+        run: |
+          if [ -n "$OVSX_PAT" ]; then echo "available=true" >> "$GITHUB_OUTPUT"; fi
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set version
+        shell: pwsh
+        run: |
+          # Version is already YYYY.MMDD.revision from release metadata
+          $vsixVersion = "${{ needs.release.outputs.version }}"
+
+          Write-Host "Setting VSIX version: $vsixVersion"
+          npm version $vsixVersion --no-git-tag-version --allow-same-version
+
+      - name: Build
+        run: |
+          npm run build:node
+          npm run build:web
+
+      - name: Copy LICENSE
+        run: cp ../LICENSE .
+
+      - name: Package VSIX
+        shell: pwsh
+        run: |
+          if ("${{ needs.release.outputs.is_beta }}" -eq "true") {
+            npx vsce package --pre-release
+          } else {
+            npx vsce package
+          }
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: vsix
+          path: fkh-vsix/*.vsix
+
+      - name: Upload VSIX to release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $vsix = Get-ChildItem -Filter "*.vsix" | Select-Object -First 1
+          gh release upload "${{ needs.release.outputs.tag_name }}" $vsix.FullName --clobber
+
+      - name: Publish to Marketplace
+        if: steps.check-vsce.outputs.available == 'true'
+        run: |
+          if [[ "${{ needs.release.outputs.is_beta }}" == "true" ]]; then
+            npx vsce publish --pre-release
+          else
+            npx vsce publish
+          fi
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      - name: Publish to Open VSX
+        if: steps.check-ovsx.outputs.available == 'true'
+        run: npx ovsx publish "$(ls -1 *.vsix | head -1)"
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Deploy CLI to NuGet and GitHub Packages
+  # ══════════════════════════════════════════════════════════════════════════
+  deploy-cli:
+    needs: release
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: fkh-cli
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release.outputs.ref }}
+
+      - name: NuGet login (OIDC trusted publishing)
+        uses: NuGet/login@v1
+        id: nuget-login
+        with:
+          user: freddy.dk
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Azure Login
+        if: vars.AZURE_KEY_VAULT_CERTIFICATE != ''
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_KEY_VAULT_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_KEY_VAULT_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_KEY_VAULT_SUBSCRIPTION_ID }}
+
+      - name: Get access token for Key Vault
+        if: vars.AZURE_KEY_VAULT_CERTIFICATE != ''
+        id: get-token
+        run: |
+          TOKEN=$(az account get-access-token --resource https://vault.azure.net --query accessToken -o tsv)
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Set version
+        shell: pwsh
+        run: |
+          # Version is already YYYY.MMDD.revision from release metadata
+          $version = "${{ needs.release.outputs.version }}"
+          $isBeta = "${{ needs.release.outputs.is_beta }}" -eq 'true'
+
+          # NuGet: YYYY.MMDD.revision for stable, YYYY.MMDD.revision-prerelease for beta
+          $nugetVersion = $version
+          if ($isBeta) { $nugetVersion += "-prerelease" }
+
+          Write-Host "Setting CLI version: $nugetVersion (beta=$isBeta)"
+          $csproj = Get-Content fkh-cli.csproj -Raw
+          $csproj = $csproj -replace '<Version>[^<]*</Version>', "<Version>$nugetVersion</Version>"
+          Set-Content fkh-cli.csproj $csproj
+
+      - name: Build
+        run: dotnet build -c Release
+
+      - name: Install AzureSignTool
+        if: vars.AZURE_KEY_VAULT_CERTIFICATE != ''
+        run: dotnet tool install --global AzureSignTool
+
+      - name: Sign assemblies
+        if: vars.AZURE_KEY_VAULT_CERTIFICATE != ''
+        run: |
+          AzureSignTool sign \
+            --azure-key-vault-url ${{ secrets.AZURE_KEY_VAULT_URL }} \
+            --azure-key-vault-accesstoken "${{ steps.get-token.outputs.token }}" \
+            --azure-key-vault-certificate ${{ vars.AZURE_KEY_VAULT_CERTIFICATE }} \
+            --timestamp-rfc3161 http://timestamp.digicert.com \
+            --timestamp-digest sha256 \
+            -v \
+            bin/Release/net8.0/fkh.dll
+
+      - name: Pack
+        run: dotnet pack -c Release -o ./nupkg --no-build
+
+      - name: Install NuGetKeyVaultSignTool
+        if: vars.AZURE_KEY_VAULT_CERTIFICATE != ''
+        run: dotnet tool install --global NuGetKeyVaultSignTool
+
+      - name: Sign NuGet package
+        if: vars.AZURE_KEY_VAULT_CERTIFICATE != ''
+        run: |
+          NuGetKeyVaultSignTool sign ./nupkg/*.nupkg \
+            --azure-key-vault-url ${{ secrets.AZURE_KEY_VAULT_URL }} \
+            --azure-key-vault-accesstoken "${{ steps.get-token.outputs.token }}" \
+            --azure-key-vault-certificate ${{ vars.AZURE_KEY_VAULT_CERTIFICATE }} \
+            --timestamp-rfc3161 http://timestamp.digicert.com \
+            --timestamp-digest sha256
+
+      - name: Upload NuGet artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuget
+          path: fkh-cli/nupkg/*.nupkg
+
+      - name: Upload NuGet to release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $nupkg = Get-ChildItem -Path nupkg -Filter "*.nupkg" | Select-Object -First 1
+          gh release upload "${{ needs.release.outputs.tag_name }}" $nupkg.FullName --clobber
+
+      - name: Publish to NuGet
+        run: dotnet nuget push ./nupkg/*.nupkg --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate

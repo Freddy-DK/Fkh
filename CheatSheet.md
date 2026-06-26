@@ -29,6 +29,29 @@
 az aks get-credentials --resource-group fkh-freddydk --name fkh-freddydk-aks --overwrite-existing
 ```
 
+## Supported Client Versions
+
+```powershell
+# Get the protocol version and supported client versions from a running backend
+$ENV:fkh_backend_URL = 'https://fkh-orgname-backend.azurewebsites.net/api'
+Invoke-RestMethod -Method Get -Uri "$ENV:fkh_backend_URL/GetSupportedClientVersions"
+```
+
+The response contains the backend protocol version and the supported versions for the three clients:
+
+```json
+{
+	"protocolVersion": 1,
+	"clients": [
+		{ "client": "VS Code extension", "version": "latest" },
+		{ "client": "CLI", "version": "latest" },
+		{ "client": "Web App", "version": "latest" }
+	]
+}
+```
+
+If a client version is `latest`, the newest available client works with that backend. If it returns a specific version number instead, that is the client version you need to use with the backend you are running.
+
 ## View Containers
 
 ```powershell

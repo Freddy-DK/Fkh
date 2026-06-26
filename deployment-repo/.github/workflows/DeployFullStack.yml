@@ -22,6 +22,11 @@ name: Deploy Full Stack
 
 on:
   workflow_dispatch:
+    inputs:
+      resilient-apply:
+        description: 'Auto-import resources that already exist in Azure (handles manual changes / state drift)'
+        type: boolean
+        default: false
 
 jobs:
   deploy:
@@ -32,6 +37,7 @@ jobs:
     with:
       fkh-repo: Freddy-DK/Fkh
       fkh-ref: main
+      resilient-apply: ${{ inputs.resilient-apply }}
     secrets:
       SQL_SA_PASSWORD: ${{ secrets.SQL_SA_PASSWORD }}
       GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}

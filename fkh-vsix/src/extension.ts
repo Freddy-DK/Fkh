@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
-import { createReadSettingsOptions, readSettings, getRepoName } from './readALGoSettings';
+import { createReadSettingsOptions, readSettings, getRepoName, getProjects } from './readALGoSettings';
 import { ProjectsTreeProvider, ProjectTreeItem, ContainersTreeProvider, ContainerTreeItem, ImagesTreeProvider, ImageTreeItem, VMsTreeProvider, VMTreeItem } from './containersTreeProvider';
 import { updateLaunchJsonAfterCreate } from './updateLaunchJson';
+import { PROTOCOL_VERSION, CLIENT_APP } from './protocol';
 
 let functionCatalog: FunctionCatalogResponse | undefined;
 let outputChannel: vscode.OutputChannel;
@@ -19,6 +20,7 @@ let vmsView: vscode.TreeView<VMTreeItem>;
 const containerLogContents = new Map<string, string>();
 const notifiedAutoStopContainers = new Set<string>();
 let autoStopCheckTimer: ReturnType<typeof setInterval> | undefined;
+let cachedFkhSettings: Record<string, string> | undefined;
 const containerLogProvider: vscode.TextDocumentContentProvider = {
   provideTextDocumentContent(uri: vscode.Uri): string {
     return containerLogContents.get(uri.toString()) ?? '';
@@ -115,6 +117,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Delay initial population to let the extension host settle
   setTimeout(async () => {
+    await loadFkhSettings();
     await containersProvider.refresh();
     updateConnectionTitle();
     projectsProvider.refresh();
@@ -124,8 +127,8 @@ export function activate(context: vscode.ExtensionContext) {
     checkAutoStopNotifications();
   }, 5000);
 
-  // Check for approaching auto-stop times every 60 seconds
-  autoStopCheckTimer = setInterval(() => checkAutoStopNotifications(), 60_000);
+  // Refresh containers/projects and check for approaching auto-stop times every 60 seconds
+  autoStopCheckTimer = setInterval(() => void checkAutoStopNotifications(), 60_000);
 
   context.subscriptions.push(
     outputChannel,
@@ -181,18 +184,15 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand('fkh.startContainer', async (item: ContainerTreeItem | ProjectTreeItem) => {
       if (!item.containerInfo) { return; }
-      const name = containersProvider.showAll ? item.containerInfo.appLabel : item.containerInfo.name;
-      await invokeContainerAction('StartContainer', name);
+      await invokeFunctionByName('StartContainer', { name: item.containerInfo.appLabel });
     }),
     vscode.commands.registerCommand('fkh.stopContainer', async (item: ContainerTreeItem | ProjectTreeItem) => {
       if (!item.containerInfo) { return; }
-      const name = containersProvider.showAll ? item.containerInfo.appLabel : item.containerInfo.name;
-      await invokeContainerAction('StopContainer', name);
+      await invokeFunctionByName('StopContainer', { name: item.containerInfo.appLabel });
     }),
     vscode.commands.registerCommand('fkh.extendAutoStop', async (item: ContainerTreeItem | ProjectTreeItem) => {
       if (!item.containerInfo) { return; }
-      const name = containersProvider.showAll ? item.containerInfo.appLabel : item.containerInfo.name;
-      await invokeContainerAction('ExtendAutoStop', name);
+      await invokeFunctionByName('ExtendAutoStop', { name: item.containerInfo.appLabel });
     }),
     vscode.commands.registerCommand('fkh.setAutoStop', async (item: ContainerTreeItem | ProjectTreeItem) => {
       if (!item.containerInfo) { return; }
@@ -201,24 +201,22 @@ export function activate(context: vscode.ExtensionContext) {
         placeHolder: '2h',
       });
       if (value === undefined || value.trim() === '') { return; }
-      const name = containersProvider.showAll ? item.containerInfo.appLabel : item.containerInfo.name;
-      await invokeFunctionByName('SetAutoStop', { name, autostop: value });
+      await invokeFunctionByName('SetAutoStop', { name: item.containerInfo.appLabel, autostop: value });
     }),
     vscode.commands.registerCommand('fkh.removeContainer', async (item: ContainerTreeItem | ProjectTreeItem) => {
       if (!item.containerInfo) { return; }
-      const name = containersProvider.showAll ? item.containerInfo.appLabel : item.containerInfo.name;
+      const name = item.containerInfo.appLabel;
       const confirm = await vscode.window.showWarningMessage(
         `Are you sure you want to remove '${name}'? This will delete the container and its database.`,
         { modal: true },
         'Remove'
       );
       if (confirm !== 'Remove') { return; }
-      await invokeContainerAction('RemoveContainer', name);
+      await invokeFunctionByName('RemoveContainer', { name });
     }),
     vscode.commands.registerCommand('fkh.waitForContainer', async (item: ContainerTreeItem | ProjectTreeItem) => {
       if (!item.containerInfo) { return; }
-      const name = containersProvider.showAll ? item.containerInfo.appLabel : item.containerInfo.name;
-      await invokeFunctionByName('WaitForContainer', { name });
+      await invokeFunctionByName('WaitForContainer', { name: item.containerInfo.appLabel });
     }),
     vscode.commands.registerCommand('fkh.run', async () => {
       const catalog = await getFunctionCatalog();
@@ -419,13 +417,53 @@ async function getFunctionCatalog(): Promise<FunctionCatalogResponse | undefined
   }
 }
 
+async function loadFkhSettings(): Promise<void> {
+  try {
+    const session = await getGitHubSession();
+    if (!session) { return; }
+    const projects = await getProjects();
+    const project = projects[0] ?? '';
+    const options = await createReadSettingsOptions(session.accessToken, project);
+    if (!options?.baseFolder) { return; }
+    const settings = await readSettings(options);
+    const fkh = settings['fkh'];
+    cachedFkhSettings = (fkh && typeof fkh === 'object') ? fkh as Record<string, string> : undefined;
+  } catch {
+    // Silently ignore — settings may not be available (no repo, no AL-Go)
+  }
+}
+
 async function promptForParameters(
   definition: FunctionDefinition,
   prefilled: Record<string, string> = {},
-  context?: string
+  context?: string,
+  prefilledDefaults: Record<string, string> = {}
 ): Promise<Record<string, string> | undefined> {
   const config = vscode.workspace.getConfiguration('fkh');
   const isAdmin = vmsProvider?.visible ?? false;
+
+  // Apply cached AL-Go fkh settings for this function
+  if (cachedFkhSettings) {
+    const prefix = `${definition.name}.`;
+    for (const [key, value] of Object.entries(cachedFkhSettings)) {
+      if (key.startsWith(prefix)) {
+        const paramKey = key.substring(prefix.length);
+        const strValue = String(value ?? '').trim();
+        if (paramKey.endsWith('?')) {
+          // Trailing ? means show the parameter with value as default (don't override explicit prefilledDefaults)
+          const cleanKey = paramKey.slice(0, -1);
+          if (!(cleanKey in prefilledDefaults) && strValue) {
+            prefilledDefaults[cleanKey] = strValue;
+          }
+        } else {
+          // Hard override — skip prompting for this param (don't override explicit prefilled)
+          if (!(paramKey in prefilled)) {
+            prefilled[paramKey] = strValue;
+          }
+        }
+      }
+    }
+  }
 
   // Resolve defaults: prefilled > settings > auto-detect > catalog default
   const resolvedDefaults: Record<string, string> = {};
@@ -438,8 +476,16 @@ async function promptForParameters(
       k => k.toLowerCase() === param.name.toLowerCase()
     );
     if (prefilledKey) {
-      resolvedDefaults[param.name] = prefilled[prefilledKey];
+      if (prefilled[prefilledKey]) {
+        resolvedDefaults[param.name] = prefilled[prefilledKey];
+      }
       continue;
+    }
+    const defaultKey = Object.keys(prefilledDefaults).find(
+      k => k.toLowerCase() === param.name.toLowerCase()
+    );
+    if (defaultKey && prefilledDefaults[defaultKey]) {
+      resolvedDefaults[param.name] = prefilledDefaults[defaultKey];
     }
 
     const uris = await vscode.window.showOpenDialog({
@@ -466,14 +512,30 @@ async function promptForParameters(
       k => k.toLowerCase() === param.name.toLowerCase()
     );
     if (prefilledKey) {
-      resolvedDefaults[param.name] = prefilled[prefilledKey];
+      if (prefilled[prefilledKey]) {
+        resolvedDefaults[param.name] = prefilled[prefilledKey];
+      }
       continue;
     }
 
+    // Keys with ? suffix: use value as default but still show for prompting
+    const defaultKey = Object.keys(prefilledDefaults).find(
+      k => k.toLowerCase() === param.name.toLowerCase()
+    );
+    if (defaultKey && prefilledDefaults[defaultKey]) {
+      resolvedDefaults[param.name] = prefilledDefaults[defaultKey];
+    }
+
     const settingKey = `${definition.name}.${param.name}`;
-    const settingValue = config.get<string>(settingKey, '').trim();
-    if (settingValue) {
-      resolvedDefaults[param.name] = settingValue;
+    const inspected = config.inspect<string>(settingKey);
+    const settingValue = (inspected?.workspaceFolderValue ?? inspected?.workspaceValue ?? inspected?.globalValue);
+    if (settingValue !== undefined) {
+      const trimmed = settingValue.trim();
+      if (trimmed) {
+        resolvedDefaults[param.name] = trimmed;
+      }
+      // Setting explicitly exists — skip prompting (even if empty)
+      continue;
     }
 
     // Auto-detect public IP for parameters named 'ip'
@@ -683,7 +745,7 @@ function formatJsonResult(obj: unknown, indent = 0): string {
   return String(obj);
 }
 
-async function invokeFunctionByName(functionName: string, prefilled: Record<string, string> = {}, context?: string): Promise<Record<string, unknown> | undefined> {
+async function invokeFunctionByName(functionName: string, prefilled: Record<string, string> = {}, context?: string, prefilledDefaults: Record<string, string> = {}): Promise<Record<string, unknown> | undefined> {
   const catalog = await getFunctionCatalog();
   if (!catalog) { return; }
 
@@ -693,7 +755,7 @@ async function invokeFunctionByName(functionName: string, prefilled: Record<stri
     return;
   }
 
-  const parameters = await promptForParameters(definition, prefilled, context);
+  const parameters = await promptForParameters(definition, prefilled, context, prefilledDefaults);
   if (!parameters) { return; }
 
   // Send the client's timezone so the server can resolve time-of-day autostop values
@@ -756,6 +818,8 @@ async function invokeFunctionByName(functionName: string, prefilled: Record<stri
               method: 'POST',
               headers: {
                 Authorization: `Bearer ${session.accessToken}`,
+                'X-Fkh-Protocol-Version': String(PROTOCOL_VERSION),
+                'X-Fkh-Client': CLIENT_APP,
               },
               body: formData,
             });
@@ -766,6 +830,8 @@ async function invokeFunctionByName(functionName: string, prefilled: Record<stri
               headers: {
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${session.accessToken}`,
+                'X-Fkh-Protocol-Version': String(PROTOCOL_VERSION),
+                'X-Fkh-Client': CLIENT_APP,
               },
               body: JSON.stringify(body),
             });
@@ -812,57 +878,6 @@ async function invokeFunctionByName(functionName: string, prefilled: Record<stri
   return invokeResult;
 }
 
-async function invokeContainerAction(
-  functionName: string,
-  containerName: string,
-  extraParams?: Record<string, string>,
-): Promise<void> {
-  const baseUrl = getBackendUrl();
-  if (!baseUrl) { return; }
-
-  const session = await getGitHubSession();
-  if (!session) { return; }
-
-  await vscode.window.withProgress(
-    {
-      location: vscode.ProgressLocation.Notification,
-      title: `${functionName}: ${containerName}`,
-      cancellable: false,
-    },
-    async () => {
-      try {
-        const body: FunctionInvokeRequest = { parameters: { name: containerName, ...extraParams } };
-
-        const response = await fetch(`${baseUrl}/${functionName}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.accessToken}`,
-          },
-          body: JSON.stringify(body),
-        });
-
-        if (response.ok) {
-          const result = await response.json();
-          logOutput(`[${functionName}] ${formatJsonResult(result)}`);
-        } else {
-          const responseText = await response.text();
-          const error = response.status === 401 || response.status === 403
-            ? `Access denied (${response.status}). ${responseText || 'Make sure your GitHub account is a member of an authorized team.'}`
-            : `Failed (${response.status}): ${responseText}`;
-          logOutput(`[${functionName}] ${error}`, true);
-        }
-      } catch (err) {
-        logOutput(`[${functionName}] Could not reach the provisioning service: ${err instanceof Error ? err.message : String(err)}`, true);
-      }
-
-      await containersProvider.refresh();
-      updateConnectionTitle();
-      projectsProvider.refresh();
-    }
-  );
-}
-
 async function showContainerLog(appLabel: string, containerName: string): Promise<void> {
   const baseUrl = getBackendUrl();
   if (!baseUrl) { return; }
@@ -884,6 +899,8 @@ async function showContainerLog(appLabel: string, containerName: string): Promis
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${session.accessToken}`,
+            'X-Fkh-Protocol-Version': String(PROTOCOL_VERSION),
+            'X-Fkh-Client': CLIENT_APP,
           },
           body: JSON.stringify(body),
         });
@@ -938,6 +955,8 @@ async function downloadContainerEventLog(appLabel: string, containerName: string
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${session.accessToken}`,
+            'X-Fkh-Protocol-Version': String(PROTOCOL_VERSION),
+            'X-Fkh-Client': CLIENT_APP,
           },
           body: JSON.stringify(body),
         });
@@ -1002,17 +1021,9 @@ async function createContainer(project?: string): Promise<void> {
   const artifact = String(settings['artifact'] ?? '');
   const country = String(settings['country'] ?? 'us');
 
-  // Extract fkh.CreateContainer.* overrides from AL-Go settings
-  const fkhSettings = settings['fkh'] as Record<string, string> | undefined;
-  const prefilled: Record<string, string> = {};
-  if (fkhSettings && typeof fkhSettings === 'object') {
-    const prefix = 'CreateContainer.';
-    for (const [key, value] of Object.entries(fkhSettings)) {
-      if (key.startsWith(prefix) && value) {
-        prefilled[key.substring(prefix.length)] = String(value);
-      }
-    }
-  }
+  // Update the cached fkh settings from the freshly-read AL-Go settings
+  const fkhSettings = settings['fkh'];
+  cachedFkhSettings = (fkhSettings && typeof fkhSettings === 'object') ? fkhSettings as Record<string, string> : undefined;
 
   outputChannel.appendLine('--- ReadSettings Options ---');
   outputChannel.appendLine(`  baseFolder: ${options.baseFolder.toString()}`);
@@ -1033,17 +1044,11 @@ async function createContainer(project?: string): Promise<void> {
   outputChannel.appendLine('--- Resolved Settings ---');
   outputChannel.appendLine(`  Country: ${country}`);
   outputChannel.appendLine(`  Artifact: ${artifactUrl}${!artifact ? ' (defaulted)' : ''}`);
-  if (Object.keys(prefilled).length > 0) {
-    outputChannel.appendLine('  Fkh overrides from AL-Go settings:');
-    for (const [key, value] of Object.entries(prefilled)) {
-      outputChannel.appendLine(`    ${key}: ${value}`);
-    }
-  }
   outputChannel.show(true);
 
   const projectContext = options.project ? `${options.repoName}/${options.project}` : options.repoName;
 
-  const result = await invokeFunctionByName('CreateContainer', { artifactUrl, repo: options.repoName, project: options.project || '', ...prefilled }, projectContext);
+  const result = await invokeFunctionByName('CreateContainer', { artifactUrl, repo: options.repoName, project: options.project || '' }, projectContext);
 
   // Update launch.json if configured and container was created successfully
   if (result) {
@@ -1051,7 +1056,17 @@ async function createContainer(project?: string): Promise<void> {
     const containerName = String(result.deployment || '');
     if (serverUrl && containerName) {
       try {
-        await updateLaunchJsonAfterCreate(containerName, serverUrl, options.project || '', prefilled);
+        // Extract CreateContainer hard overrides from cached settings for launch.json
+        const launchOverrides: Record<string, string> = {};
+        if (cachedFkhSettings) {
+          const prefix = 'CreateContainer.';
+          for (const [key, value] of Object.entries(cachedFkhSettings)) {
+            if (key.startsWith(prefix) && !key.endsWith('?')) {
+              launchOverrides[key.substring(prefix.length)] = String(value ?? '');
+            }
+          }
+        }
+        await updateLaunchJsonAfterCreate(containerName, serverUrl, options.project || '', launchOverrides);
       } catch (err) {
         logOutput(`[UpdateLaunchJson] ${err instanceof Error ? err.message : String(err)}`, true);
       }
@@ -1097,7 +1112,10 @@ export function deactivate() {
   }
 }
 
-function checkAutoStopNotifications(): void {
+async function checkAutoStopNotifications(): Promise<void> {
+  await containersProvider.refresh();
+  projectsProvider.refresh();
+
   const containers = containersProvider.getMyContainers();
   const now = Date.now();
 
@@ -1124,7 +1142,7 @@ function checkAutoStopNotifications(): void {
       ).then(async (action) => {
         if (action === 'Extend 2h') {
           notifiedAutoStopContainers.delete(key);
-          await invokeContainerAction('ExtendAutoStop', label);
+          await invokeFunctionByName('ExtendAutoStop', { name: label });
         }
       });
     }

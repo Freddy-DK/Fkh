@@ -24,14 +24,12 @@ Configuration (checked in order):
 Authentication (checked in order):
   1. --useOIDC             Fetch OIDC token from GitHub Actions environment
                            (uses ACTIONS_ID_TOKEN_REQUEST_URL/TOKEN, auto-refreshes)
-  2. --oidcToken <token>   GitHub Actions OIDC token (passed on command line)
-  3. OIDC_TOKEN            GitHub Actions OIDC token (environment variable)
-  4. GH_TOKEN              GitHub personal access token
-  5. gh auth token         GitHub CLI (interactive fallback)
-                           Use --ghUser <user> to target a specific GitHub account
+  2. GH_TOKEN              GitHub personal access token
+  3. gh auth token         GitHub CLI (interactive fallback)
+                           Use --ghUser <user> or GH_USER env var to target a
+                           specific GitHub account
 
-Note: --useOIDC and --oidcToken are exclusive — when either is specified, no other
-      auth methods are tried.
+Note: --useOIDC is exclusive — when specified, no other auth methods are tried.
 """;
 
 var asJson = args.Contains("--asJson", StringComparer.OrdinalIgnoreCase);
@@ -44,7 +42,107 @@ try
         var version = typeof(FunctionCatalogResponse).Assembly.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion
             ?? typeof(FunctionCatalogResponse).Assembly.GetName().Version?.ToString()
             ?? "unknown";
-        Console.WriteLine(version);
+        // Strip build metadata (+hash) and leading zeros from segments
+        var plusIndex = version.IndexOf('+');
+        if (plusIndex >= 0) version = version[..plusIndex];
+        version = string.Join('.', version.Split('.').Select(s => s.TrimStart('0') is "" ? "0" : s.TrimStart('0')));
+
+        string? backendVer = null, backendDeployedAt = null, clusterVer = null, clusterDeployedAt = null;
+        string? deploymentRepo = null, fkhFork = null, backendUrl = null;
+        int? forkAhead = null, forkBehind = null;
+        string? mergeBaseSha = null, mergeBaseDate = null;
+        bool backendAvailable = false;
+
+        try
+        {
+            var verSettings = LoadSettings();
+            var verBackendUrl = FindArgValue(args, "backendUrl");
+            if (!string.IsNullOrWhiteSpace(verBackendUrl))
+                verSettings.BackendUrl = verBackendUrl;
+            verSettings.User = FindArgValue(args, "ghUser") ?? Environment.GetEnvironmentVariable("GH_USER");
+
+            var verEndpoint = $"{verSettings.BackendUrl!.TrimEnd('/')}/GetVersion";
+            backendUrl = verSettings.BackendUrl;
+            var verTokenProvider = new TokenProvider(useOidc: useOidc, ghUser: verSettings.User);
+            var verToken = await verTokenProvider.GetTokenAsync();
+
+            using var verClient = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            using var verRequest = new HttpRequestMessage(HttpMethod.Post, verEndpoint);
+            verRequest.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+            verRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", verToken);
+            verRequest.Headers.Add("X-Fkh-Protocol-Version", ClientCommand.ProtocolVersion.ToString());
+            verRequest.Headers.Add("X-Fkh-Client", ClientCommand.ClientApp);
+
+            var verResponse = await verClient.SendAsync(verRequest);
+            if (verResponse.IsSuccessStatusCode)
+            {
+                backendAvailable = true;
+                var verBody = await verResponse.Content.ReadAsStringAsync();
+                var verData = JsonSerializer.Deserialize<JsonElement>(verBody);
+                backendVer = verData.TryGetProperty("backendVersion", out var bv) ? bv.GetString() : null;
+                backendDeployedAt = verData.TryGetProperty("backendDeployedAt", out var bda) ? bda.GetString() : null;
+                clusterVer = verData.TryGetProperty("clusterVersion", out var cv) ? cv.GetString() : null;
+                clusterDeployedAt = verData.TryGetProperty("clusterDeployedAt", out var cda) ? cda.GetString() : null;
+                deploymentRepo = verData.TryGetProperty("deploymentRepo", out var dr) ? dr.GetString() : null;
+                fkhFork = verData.TryGetProperty("fkhFork", out var ff) ? ff.GetString() : null;
+                if (verData.TryGetProperty("forkStatus", out var fs) && fs.ValueKind == JsonValueKind.Object)
+                {
+                    forkAhead = fs.TryGetProperty("ahead", out var a) ? a.GetInt32() : null;
+                    forkBehind = fs.TryGetProperty("behind", out var b) ? b.GetInt32() : null;
+                    mergeBaseSha = fs.TryGetProperty("mergeBaseSha", out var ms) ? ms.GetString() : null;
+                    mergeBaseDate = fs.TryGetProperty("mergeBaseDate", out var md) ? md.GetString() : null;
+                }
+            }
+        }
+        catch { }
+
+        if (asJson)
+        {
+            var jsonObj = new Dictionary<string, object?>
+            {
+                ["client_version"] = version,
+                ["backend_url"] = backendUrl,
+                ["backend_version"] = backendVer,
+                ["backend_deployed_at"] = backendDeployedAt,
+                ["cluster_version"] = clusterVer,
+                ["cluster_deployed_at"] = clusterDeployedAt,
+                ["deployment_repo"] = deploymentRepo,
+                ["fkh_fork"] = fkhFork,
+                ["fork_ahead"] = forkAhead,
+                ["fork_behind"] = forkBehind,
+                ["fork_merge_base_sha"] = mergeBaseSha,
+                ["fork_merge_base_date"] = mergeBaseDate,
+            };
+            Console.WriteLine(JsonSerializer.Serialize(jsonObj, new JsonSerializerOptions { WriteIndented = true, DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull }));
+        }
+        else
+        {
+            Console.WriteLine($"Client:  {version}");
+            if (!backendAvailable)
+            {
+                Console.WriteLine("Backend: (unavailable)");
+                Console.WriteLine("Cluster: (unavailable)");
+            }
+            else
+            {
+                Console.WriteLine($"Backend: {backendVer ?? "unknown"}{FormatDeployedAt(backendDeployedAt)}");
+                Console.WriteLine($"Cluster: {clusterVer ?? "unknown"}{FormatDeployedAt(clusterDeployedAt)}");
+                if (!string.IsNullOrEmpty(backendUrl))
+                    Console.WriteLine($"URL:     {backendUrl}");
+                if (!string.IsNullOrEmpty(deploymentRepo))
+                    Console.WriteLine($"Repo:    {deploymentRepo}");
+                if (!string.IsNullOrEmpty(fkhFork))
+                {
+                    Console.WriteLine($"Fork:    {fkhFork}");
+                    if (forkAhead is not null)
+                    {
+                        Console.WriteLine($"         {forkAhead} ahead, {forkBehind} behind Freddy-DK/Fkh");
+                        if (!string.IsNullOrEmpty(mergeBaseSha))
+                            Console.WriteLine($"         merge base: {mergeBaseSha?[..7]}{FormatDeployedAt(mergeBaseDate)}");
+                    }
+                }
+            }
+        }
         return 0;
     }
 
@@ -59,7 +157,7 @@ try
     var cliBackendUrl = FindArgValue(args, "backendUrl");
     if (!string.IsNullOrWhiteSpace(cliBackendUrl))
         settings.BackendUrl = cliBackendUrl;
-    settings.User = FindArgValue(args, "ghUser");
+    settings.User = FindArgValue(args, "ghUser") ?? Environment.GetEnvironmentVariable("GH_USER");
     settings.UseOidc = useOidc;
     var wantsHelp = args.Length == 0 || args.Contains("-h") || args.Contains("--help");
     var helpCommand = (args.Length >= 2 && wantsHelp && !args[0].StartsWith("-")) ? args[0] : null;
@@ -159,8 +257,22 @@ try
     }
 
     var endpoint = ResolveEndpoint(function.Route, settings);
-    var tokenProvider = new TokenProvider(useOidc: settings.UseOidc, explicitOidcToken: parsed.OidcToken, ghUser: settings.User);
+    var tokenProvider = new TokenProvider(useOidc: settings.UseOidc, ghUser: settings.User);
     var token = await tokenProvider.GetTokenAsync();
+
+    // Interactive confirmation for destructive commands when --confirm is not passed
+    if (function.RequiresConfirmation &&
+        (!parsed.Parameters.TryGetValue("confirm", out var confirmVal) || !string.Equals(confirmVal, "true", StringComparison.OrdinalIgnoreCase)))
+    {
+        Console.Write($"{function.Name} Are you sure? [yes/N] ");
+        var answer = Console.ReadLine()?.Trim();
+        if (!string.Equals(answer, "yes", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.WriteLine("Aborted.");
+            return 1;
+        }
+        parsed.Parameters["confirm"] = "true";
+    }
 
     // Send the client's timezone so the server can resolve time-of-day autostop values
     parsed.Parameters["_timezone"] = Environment.GetEnvironmentVariable("FKH_TIMEZONE") is string tz && !string.IsNullOrWhiteSpace(tz)
@@ -244,6 +356,8 @@ try
         }
 
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        request.Headers.Add("X-Fkh-Protocol-Version", ClientCommand.ProtocolVersion.ToString());
+        request.Headers.Add("X-Fkh-Client", ClientCommand.ClientApp);
 
         var response = await client.SendAsync(request, cts.Token);
         var body = await response.Content.ReadAsStringAsync(cts.Token);
@@ -390,17 +504,6 @@ static ParsedArgs ParseArgs(string[] args, FunctionCatalogResponse catalog)
 
         if (string.Equals(key, "useOIDC", StringComparison.OrdinalIgnoreCase))
         {
-            continue;
-        }
-
-        if (string.Equals(key, "oidcToken", StringComparison.OrdinalIgnoreCase))
-        {
-            i++;
-            if (i >= args.Length)
-            {
-                throw new InvalidOperationException("Missing value for --oidcToken");
-            }
-            parsed.OidcToken = args[i];
             continue;
         }
 
@@ -645,9 +748,8 @@ static void PrintCommonOptions()
 {
     Console.WriteLine("Common options:");
     Console.WriteLine("    --backendUrl <url>  Override the backend URL");
-    Console.WriteLine("    --ghUser <user>     GitHub user account for gh auth token");
+    Console.WriteLine("    --ghUser <user>     GitHub user account for gh auth token (or GH_USER env var)");
     Console.WriteLine("    --useOIDC           Fetch OIDC token from GitHub Actions (auto-refreshes)");
-    Console.WriteLine("    --oidcToken <token>  Use a GitHub Actions OIDC token");
     Console.WriteLine("    --nowait            Don't wait for completion");
     Console.WriteLine("    --asJson            Output the result as JSON");
     Console.WriteLine("    --output <path>     Save binary output to a file");
@@ -929,6 +1031,14 @@ static void FormatElement(StringBuilder sb, JsonElement element, int indent)
     }
 }
 
+static string FormatDeployedAt(string? deployedAt)
+{
+    if (string.IsNullOrEmpty(deployedAt)) return "";
+    if (DateTimeOffset.TryParse(deployedAt, out var dto))
+        return $" (deployed {dto.ToLocalTime():yyyy-MM-dd HH:mm})";
+    return $" (deployed {deployedAt})";
+}
+
 static CliSettings LoadSettings()
 {
     // 1. Environment variable takes priority
@@ -967,7 +1077,6 @@ sealed class ParsedArgs
     public bool NoWait { get; set; }
     public bool AsJson { get; set; }
     public bool Open { get; set; }
-    public string? OidcToken { get; set; }
     public string? Output { get; set; }
     public Dictionary<string, string> Parameters { get; } = new(StringComparer.OrdinalIgnoreCase);
 }
@@ -998,6 +1107,9 @@ sealed class FunctionDefinition
 
     [JsonPropertyName("parameters")]
     public List<FunctionParameterDefinition> Parameters { get; init; } = new();
+
+    [JsonPropertyName("requiresConfirmation")]
+    public bool RequiresConfirmation { get; init; }
 }
 
 sealed class FunctionParameterDefinition

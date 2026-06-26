@@ -19,7 +19,10 @@ public abstract class FunctionBase
 {
     private static readonly List<OrgTeamConfig> AllowedOrgTeams = LoadOrgTeamConfig("ALLOWED_ORG_TEAMS");
     private static readonly List<OrgTeamConfig> AdminOrgTeams = LoadOrgTeamConfig("ADMIN_ORG_TEAMS", required: false);
+    private static readonly List<OrgTeamConfig> SupportOrgTeams = LoadOrgTeamConfig("SUPPORT_ORG_TEAMS", required: false);
+    private static readonly List<AllowedUserConfig> AllowedUsers = LoadAllowedUsers();
     private static readonly GitHubOidcService OidcService = new();
+    private static readonly AdoOidcService AdoOidcService = new();
 
     // ── Brute-force protection ───────────────────────────────────────────────────
     private const int MaxFailedAttempts = 3;
@@ -224,16 +227,8 @@ public abstract class FunctionBase
             if (string.Equals(parameter.Name, "name", StringComparison.OrdinalIgnoreCase)
                 && !string.IsNullOrWhiteSpace(value))
             {
-                if (auth.IsAdmin)
-                {
-                    if (!value.All(c => char.IsLetterOrDigit(c) || c == '-'))
-                        return Respond(req, HttpStatusCode.BadRequest, "Parameter 'name' may only contain alphanumeric characters and hyphens.");
-                }
-                else
-                {
-                    if (!value.All(char.IsLetterOrDigit))
-                        return Respond(req, HttpStatusCode.BadRequest, "Parameter 'name' may only contain alphanumeric characters (a-z, A-Z, 0-9).");
-                }
+                if (!value.All(c => char.IsLetterOrDigit(c) || c == '-'))
+                    return Respond(req, HttpStatusCode.BadRequest, "Parameter 'name' may only contain alphanumeric characters and hyphens.");
             }
 
             if (!string.IsNullOrWhiteSpace(value))
@@ -243,6 +238,7 @@ public abstract class FunctionBase
         ClearFailedAttempts(auth.ClientIp);
         parameters["_githubUsername"] = auth.Username;
         parameters["_isAdmin"] = auth.IsAdmin.ToString();
+        parameters["_isSupport"] = auth.IsSupport.ToString();
         foreach (var kv in internalParams)
             parameters[kv.Key] = kv.Value;
 
@@ -417,6 +413,7 @@ public abstract class FunctionBase
         // Inject the authenticated GitHub username so services can use it
         parametersResult.Parameters!["_githubUsername"] = auth.Username;
         parametersResult.Parameters!["_isAdmin"] = auth.IsAdmin.ToString();
+        parametersResult.Parameters!["_isSupport"] = auth.IsSupport.ToString();
 
         // Resolve artifact shorthand (e.g. "///us/latest") to a full URL
         var artifactError = await ResolveArtifactAsync(req, logger, parametersResult.Parameters);
@@ -453,6 +450,7 @@ public abstract class FunctionBase
 
         parametersResult.Parameters!["_githubUsername"] = auth.Username;
         parametersResult.Parameters!["_isAdmin"] = auth.IsAdmin.ToString();
+        parametersResult.Parameters!["_isSupport"] = auth.IsSupport.ToString();
 
         var artifactError = await ResolveArtifactAsync(req, logger, parametersResult.Parameters);
         if (artifactError is not null) return artifactError;
@@ -527,6 +525,7 @@ public abstract class FunctionBase
     {
         public required string Username { get; init; }
         public required bool IsAdmin { get; init; }
+        public required bool IsSupport { get; init; }
         public required string ClientIp { get; init; }
         public required FunctionDefinition Function { get; init; }
     }
@@ -544,7 +543,23 @@ public abstract class FunctionBase
     {
         var clientIp = GetClientIp(req);
 
-        // ── Step 0: Check IP block list ───────────────────────────────────────────
+        // ── Step 0a: Protocol version check ───────────────────────────────────────
+        var protocolVersionHeader = req.Headers.TryGetValues("X-Fkh-Protocol-Version", out var pvValues)
+            ? pvValues.FirstOrDefault() : null;
+        var clientAppHeader = req.Headers.TryGetValues("X-Fkh-Client", out var caValues)
+            ? caValues.FirstOrDefault() : null;
+
+        var protocolVersion = Models.ProtocolVersionConfig.ParseProtocolVersion(protocolVersionHeader);
+        var clientName = Models.ProtocolVersionConfig.ParseClientName(clientAppHeader);
+        var protocolError = await Models.ProtocolVersionConfig.ValidateAsync(protocolVersion, clientName);
+        if (protocolError is not null)
+        {
+            logger.LogWarning("Protocol version mismatch from {ClientApp} (version {ProtocolVersion}): {Error}",
+                clientName, protocolVersion, protocolError);
+            return (null, Respond(req, HttpStatusCode.UpgradeRequired, protocolError));
+        }
+
+        // ── Step 0b: Check IP block list ──────────────────────────────────────────
         if (IsIpBlocked(clientIp))
         {
             logger.LogWarning("Blocked request from {IP} — too many failed auth attempts.", clientIp);
@@ -571,13 +586,29 @@ public abstract class FunctionBase
         // ── Step 2 & 3: Authenticate and authorize ───────────────────────────────
         string username;
         var isAdmin = false;
+        var isSupport = false;
 
-        if (GitHubOidcService.IsOidcToken(token))
+        if (AdoOidcService.IsAdoOidcToken(token))
+        {
+            var (subject, adoError) = await AdoOidcService.ValidateTokenAsync(token);
+            if (subject is null)
+            {
+                logger.LogError("Azure DevOps OIDC token validation failed: {Error}", adoError);
+                RecordFailedAttempt(clientIp);
+                return (null, Respond(req, HttpStatusCode.Forbidden,
+                    $"Azure DevOps OIDC token invalid or service connection not authorized. {adoError}"));
+            }
+
+            username = subject.Replace("sc://", "").Replace('/', '-');
+            isAdmin = true;
+            logger.LogInformation("Received {Operation} request from ADO OIDC caller: {Subject} (username: {Username}, admin: true)", operationName, subject, username);
+        }
+        else if (GitHubOidcService.IsOidcToken(token))
         {
             var repository = await OidcService.ValidateTokenAsync(token);
             if (repository is null)
             {
-                logger.LogWarning("OIDC token validation failed or repository not in allow-list.");
+                logger.LogError("OIDC token validation failed or repository not in allow-list.");
                 RecordFailedAttempt(clientIp);
                 return (null, Respond(req, HttpStatusCode.Forbidden,
                     "OIDC token invalid or repository not authorized. Check ALLOWED_OIDC_REPOS configuration."));
@@ -592,7 +623,7 @@ public abstract class FunctionBase
             var ghUsername = await gitHub.GetAuthenticatedUsernameAsync(token);
             if (ghUsername is null)
             {
-                logger.LogWarning("Invalid or expired GitHub token received.");
+                logger.LogError("Invalid or expired GitHub token received.");
                 RecordFailedAttempt(clientIp);
                 return (null, Respond(req, HttpStatusCode.Unauthorized, "Invalid or expired GitHub token."));
             }
@@ -600,36 +631,14 @@ public abstract class FunctionBase
             username = ghUsername;
             logger.LogInformation("Received {Operation} request from GitHub user: {Username}", operationName, username);
 
-            var authorized = false;
-            foreach (var orgTeam in AdminOrgTeams)
-            {
-                if (await gitHub.IsTeamMemberAsync(token, orgTeam.Org, orgTeam.Team, username))
-                {
-                    logger.LogInformation("User {Username} authorized as admin via org={Org} team={Team}", username, orgTeam.Org, orgTeam.Team);
-                    authorized = true;
-                    isAdmin = true;
-                    break;
-                }
-            }
-
+            var (authorized, userIsAdmin, userIsSupport) = await AuthorizeGitHubUserAsync(gitHub, token, username, logger);
+            isAdmin = userIsAdmin;
+            isSupport = userIsSupport;
             if (!authorized)
             {
-                foreach (var orgTeam in AllowedOrgTeams)
-                {
-                    if (await gitHub.IsTeamMemberAsync(token, orgTeam.Org, orgTeam.Team, username))
-                    {
-                        logger.LogInformation("User {Username} authorized via org={Org} team={Team}", username, orgTeam.Org, orgTeam.Team);
-                        authorized = true;
-                        break;
-                    }
-                }
-            }
-
-            if (!authorized)
-            {
-                logger.LogWarning("User {Username} is not a member of any authorized team.", username);
+                logger.LogWarning("User {Username} is not authorized.", username);
                 RecordFailedAttempt(clientIp);
-                return (null, Respond(req, HttpStatusCode.Forbidden, "You are not a member of an authorized team."));
+                return (null, Respond(req, HttpStatusCode.Forbidden, "You are not authorized to use this Fkh deployment."));
             }
         }
 
@@ -644,9 +653,83 @@ public abstract class FunctionBase
         {
             Username = username,
             IsAdmin = isAdmin,
+            IsSupport = isSupport,
             ClientIp = clientIp,
             Function = function
         }, null);
+    }
+
+    private static async Task<(bool Authorized, bool IsAdmin, bool IsSupport)> AuthorizeGitHubUserAsync(
+        GitHubAuthService gitHub,
+        string token,
+        string username,
+        ILogger logger)
+    {
+        var isAdmin = false;
+        var isSupport = false;
+        var authorized = false;
+
+        foreach (var entry in AllowedUsers)
+        {
+            if (!string.Equals(entry.User, username, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            authorized = true;
+            switch (entry.Role.ToLowerInvariant())
+            {
+                case "admin":
+                    isAdmin = true;
+                    logger.LogInformation("User {Username} authorized as admin via allowed_users", username);
+                    break;
+                case "support":
+                    isSupport = true;
+                    logger.LogInformation("User {Username} authorized as support via allowed_users", username);
+                    break;
+                default:
+                    logger.LogInformation("User {Username} authorized as member via allowed_users", username);
+                    break;
+            }
+        }
+
+        foreach (var orgTeam in AdminOrgTeams)
+        {
+            if (await gitHub.IsTeamMemberAsync(token, orgTeam.Org, orgTeam.Team, username))
+            {
+                logger.LogInformation("User {Username} authorized as admin via org={Org} team={Team}", username, orgTeam.Org, orgTeam.Team);
+                authorized = true;
+                isAdmin = true;
+            }
+        }
+
+        if (!isAdmin)
+        {
+            foreach (var orgTeam in SupportOrgTeams)
+            {
+                if (await gitHub.IsTeamMemberAsync(token, orgTeam.Org, orgTeam.Team, username))
+                {
+                    logger.LogInformation("User {Username} authorized as support via org={Org} team={Team}", username, orgTeam.Org, orgTeam.Team);
+                    authorized = true;
+                    isSupport = true;
+                }
+            }
+        }
+
+        if (!isAdmin)
+        {
+            foreach (var orgTeam in AllowedOrgTeams)
+            {
+                if (await gitHub.IsTeamMemberAsync(token, orgTeam.Org, orgTeam.Team, username))
+                {
+                    logger.LogInformation("User {Username} authorized via org={Org} team={Team}", username, orgTeam.Org, orgTeam.Team);
+                    authorized = true;
+                }
+            }
+        }
+
+        if (isAdmin)
+            isSupport = false;
+
+        return (authorized, isAdmin, isSupport);
     }
 
 
@@ -880,21 +963,10 @@ public abstract class FunctionBase
             if (string.Equals(parameter.Name, "name", StringComparison.OrdinalIgnoreCase)
                 && !string.IsNullOrWhiteSpace(value))
             {
-                if (isAdmin)
+                if (!value.All(c => char.IsLetterOrDigit(c) || c == '-'))
                 {
-                    if (!value.All(c => char.IsLetterOrDigit(c) || c == '-'))
-                    {
-                        return ParameterValidationResult.Fail(
-                            "Parameter 'name' may only contain alphanumeric characters and hyphens.");
-                    }
-                }
-                else
-                {
-                    if (!value.All(char.IsLetterOrDigit))
-                    {
-                        return ParameterValidationResult.Fail(
-                            "Parameter 'name' may only contain alphanumeric characters (a-z, A-Z, 0-9).");
-                    }
+                    return ParameterValidationResult.Fail(
+                        "Parameter 'name' may only contain alphanumeric characters and hyphens.");
                 }
             }
 
@@ -933,6 +1005,30 @@ public abstract class FunctionBase
         return JsonSerializer.Deserialize<List<OrgTeamConfig>>(raw,
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
             ?? throw new InvalidOperationException($"Failed to parse {envVarName}.");
+    }
+
+    private static List<AllowedUserConfig> LoadAllowedUsers()
+    {
+        var raw = Environment.GetEnvironmentVariable("ALLOWED_USERS");
+        if (string.IsNullOrWhiteSpace(raw))
+            return [];
+
+        var users = JsonSerializer.Deserialize<List<AllowedUserConfig>>(raw,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+            ?? throw new InvalidOperationException("Failed to parse ALLOWED_USERS.");
+
+        foreach (var user in users)
+        {
+            var role = user.Role.ToLowerInvariant();
+            if (role is not ("admin" or "member" or "support"))
+            {
+                throw new InvalidOperationException(
+                    $"Invalid role '{user.Role}' for user '{user.User}' in ALLOWED_USERS. " +
+                    "Expected admin, member, or support.");
+            }
+        }
+
+        return users;
     }
 
     private sealed class ParameterValidationResult

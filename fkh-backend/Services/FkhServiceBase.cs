@@ -308,19 +308,39 @@ public abstract class FkhServiceBase
 
     /// <summary>
     /// Resolves the app label from parameters.
-    /// For admins: if name contains a '-', it is used as the full name; otherwise username is prefixed.
-    /// For non-admins: username is always prefixed (name must not contain '-').
+    /// If name already starts with the user's own "username-" prefix (or, for admins,
+    /// any prefix containing a '-'), it is used as the full app name.
+    /// Otherwise the username is prefixed automatically.
+    /// Non-admins are rejected if the name contains a hyphen but does not match their own prefix.
     /// </summary>
     protected static string ResolveAppName(Dictionary<string, string> parameters)
     {
         var name = parameters["name"];
+        var githubUsername = parameters["_githubUsername"];
         var isAdmin = parameters.TryGetValue("_isAdmin", out var adminVal)
             && string.Equals(adminVal, "true", StringComparison.OrdinalIgnoreCase);
-        if (isAdmin && name.Contains('-'))
+
+        var ownPrefix = $"{githubUsername}-";
+
+        if (name.StartsWith(ownPrefix, StringComparison.OrdinalIgnoreCase))
         {
+            // User supplied their own full app label — use as-is
             return SanitizeAppName(name);
         }
-        var githubUsername = parameters["_githubUsername"];
+
+        if (name.Contains('-'))
+        {
+            // Name references someone else's container
+            if (!isAdmin)
+            {
+                throw new UnauthorizedAccessException(
+                    "You do not have permission to manage containers that belong to other users.");
+            }
+            // Admin can reference any container
+            return SanitizeAppName(name);
+        }
+
+        // Short name without prefix — prepend the user's username
         return SanitizeAppName($"{githubUsername}-{name}");
     }
 
@@ -621,9 +641,10 @@ public abstract class FkhServiceBase
         Logger.LogInformation("Database '{DatabaseName}' restored successfully.", databaseName);
     }
 
-    protected async Task<ExecResult> ExecInBcPodPwshAsync(Kubernetes client, string podName, string containerName, string psScript)
+    protected async Task<ExecResult> ExecInBcPodAsync(Kubernetes client, string podName, string containerName, string psScript, bool usePwsh = true)
     {
-        var command = new[] { "pwsh", "-NoProfile", "-Command", psScript };
+        var powershellExecutable = usePwsh ? "pwsh" : "powershell";
+        var command = new[] { powershellExecutable, "-NoProfile", "-Command", psScript };
         var ws = await client.WebSocketNamespacedPodExecAsync(
             podName, Namespace, command, containerName,
             stderr: true, stdin: false, stdout: true, tty: false);
@@ -644,7 +665,7 @@ public abstract class FkhServiceBase
         var stderr = stderrTask.Result;
         if (!string.IsNullOrWhiteSpace(stderr))
         {
-            Logger.LogWarning("BC pod pwsh exec stderr: {StdErr}", stderr);
+            Logger.LogWarning("BC pod {PowerShellExecutable} exec stderr: {StdErr}", powershellExecutable, stderr);
         }
 
         return new ExecResult(stdoutTask.Result, stderr);
@@ -677,21 +698,21 @@ public abstract class FkhServiceBase
         var donePath = $"{basePath}.done";
 
         // Check if job is already complete (retry after previous timeout)
-        var doneCheck = await ExecInBcPodPwshAsync(client, podName, containerName,
+        var doneCheck = await ExecInBcPodAsync(client, podName, containerName,
             $"if (Test-Path '{donePath}') {{ 'DONE' }} else {{ 'PENDING' }}");
 
         if (doneCheck.Stdout.Trim() == "DONE")
             return await CollectDetachedResultAsync(client, podName, containerName, basePath, stdoutPath, stderrPath);
 
         // Check if job is already running (script file exists but no done marker)
-        var runningCheck = await ExecInBcPodPwshAsync(client, podName, containerName,
+        var runningCheck = await ExecInBcPodAsync(client, podName, containerName,
             $"if (Test-Path '{scriptPath}') {{ 'RUNNING' }} else {{ 'NEW' }}");
 
         if (runningCheck.Stdout.Trim() == "NEW")
         {
             // First invocation — write script and wrapper, launch detached
             var scriptBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(script));
-            await ExecInBcPodPwshAsync(client, podName, containerName,
+            await ExecInBcPodAsync(client, podName, containerName,
                 $"[IO.File]::WriteAllBytes('{scriptPath}', [Convert]::FromBase64String('{scriptBase64}'))");
 
             var wrapperScript = $@"
@@ -704,10 +725,10 @@ try {{
     'DONE' | Out-File '{donePath}' -NoNewline
 }}";
             var wrapperBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(wrapperScript));
-            await ExecInBcPodPwshAsync(client, podName, containerName,
+            await ExecInBcPodAsync(client, podName, containerName,
                 $"[IO.File]::WriteAllBytes('{wrapperPath}', [Convert]::FromBase64String('{wrapperBase64}'))");
 
-            await ExecInBcPodPwshAsync(client, podName, containerName,
+            await ExecInBcPodAsync(client, podName, containerName,
                 $"Start-Process -FilePath 'pwsh' -ArgumentList '-NoProfile','-File','{wrapperPath}' -WindowStyle Hidden");
         }
 
@@ -716,7 +737,7 @@ try {{
         {
             await Task.Delay(5_000);
 
-            var pollCheck = await ExecInBcPodPwshAsync(client, podName, containerName,
+            var pollCheck = await ExecInBcPodAsync(client, podName, containerName,
                 $"if (Test-Path '{donePath}') {{ 'DONE' }} else {{ 'PENDING' }}");
 
             if (pollCheck.Stdout.Trim() == "DONE")
@@ -730,15 +751,15 @@ try {{
         Kubernetes client, string podName, string containerName,
         string basePath, string stdoutPath, string stderrPath)
     {
-        var stdoutResult = await ExecInBcPodPwshAsync(client, podName, containerName,
+        var stdoutResult = await ExecInBcPodAsync(client, podName, containerName,
             $"if (Test-Path '{stdoutPath}') {{ Get-Content '{stdoutPath}' -Raw }} else {{ '' }}");
-        var stderrResult = await ExecInBcPodPwshAsync(client, podName, containerName,
+        var stderrResult = await ExecInBcPodAsync(client, podName, containerName,
             $"if (Test-Path '{stderrPath}') {{ Get-Content '{stderrPath}' -Raw }} else {{ '' }}");
 
         // Clean up all job files
         try
         {
-            await ExecInBcPodPwshAsync(client, podName, containerName,
+            await ExecInBcPodAsync(client, podName, containerName,
                 $"Remove-Item '{basePath}*' -Force -ErrorAction SilentlyContinue");
         }
         catch { /* best-effort cleanup */ }

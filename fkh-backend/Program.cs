@@ -33,6 +33,7 @@ var host = new HostBuilder()
         services.AddSingleton<FkhListVMs>();
         services.AddSingleton<FkhInvokeSqlCmd>();
         services.AddSingleton<FkhInvokeScript>();
+        services.AddSingleton<FkhImportTestToolkit>();
         services.AddSingleton<FkhWaitForContainer>();
         services.AddSingleton<FkhGetDatabaseUploadSas>();
         services.AddSingleton<FkhGetDatabaseDownloadSas>();
@@ -46,6 +47,7 @@ var host = new HostBuilder()
         services.AddSingleton<FkhPrepull>();
         services.AddSingleton<FkhUserSettings>();
         services.AddSingleton<FkhClusterControl>();
+        services.AddSingleton<FkhGetVersion>();
         services.AddSingleton<FkhCopyFileFromContainer>();
         services.AddSingleton<FkhCopyFileToContainer>();
         services.AddSingleton<FkhGetAppInfo>();

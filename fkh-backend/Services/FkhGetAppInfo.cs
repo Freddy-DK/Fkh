@@ -17,6 +17,7 @@ public class FkhGetAppInfo : FkhServiceBase
         var filterAppName = parameters.TryGetValue("appName", out var an) ? an : null;
         var filterAppPublisher = parameters.TryGetValue("appPublisher", out var ap) ? ap : null;
         var filterAppId = parameters.TryGetValue("appId", out var ai) ? ai : null;
+        var sortByDependencies = parameters.TryGetValue("sort", out var sort) && IsFlagSet(sort);
 
         if (filterAppId != null && (filterAppId.Contains('*') || filterAppId.Contains('?')))
         {
@@ -39,9 +40,41 @@ public class FkhGetAppInfo : FkhServiceBase
         var script = $@"
 $ErrorActionPreference = 'Stop'
 . 'c:\run\prompt.ps1'
-Get-NAVAppInfo -ServerInstance bc -TenantSpecificProperties -Tenant '{tenant}' |
-    Select-Object @{{N='AppId';E={{$_.AppId.Value.ToString()}}}}, Name, Publisher, @{{N='Version';E={{$_.Version.ToString()}}}}, ExtensionType, Scope, IsInstalled, IsPublished, SyncState, NeedsUpgrade |
-    ConvertTo-Json -Depth 5
+
+$inArgs = @{{
+    ServerInstance = 'bc'
+    TenantSpecificProperties = $true
+    Tenant = '{tenant}'
+}}
+
+$apps = @(Get-NAVAppInfo @inArgs |
+    ForEach-Object {{
+        $app = Get-NAVAppInfo -Id ""$($_.AppId)"" -Publisher $_.Publisher -Name $_.Name -Version $_.Version @inArgs
+
+        [pscustomobject]@{{
+            AppId = $app.AppId.Value.ToString()
+            Name = $app.Name
+            Publisher = $app.Publisher
+            Version = $app.Version.ToString()
+            Dependencies = [object[]]@($app.Dependencies | ForEach-Object {{
+                $dependencyId = if ($_.Id) {{ $_.Id }} else {{ $_.AppId }}
+                [pscustomobject]@{{
+                    Id = if ($null -ne $dependencyId.Value) {{ $dependencyId.Value.ToString() }} else {{ $dependencyId.ToString() }}
+                    Publisher = $_.Publisher
+                    Name = $_.Name
+                    Version = $_.MinVersion.ToString()
+                }}
+            }})
+            ExtensionType = $app.ExtensionType.ToString()
+            Scope = $app.Scope.ToString()
+            IsInstalled = $app.IsInstalled
+            IsPublished = $app.IsPublished
+            SyncState = $app.SyncState.ToString()
+            NeedsUpgrade = $app.NeedsUpgrade
+        }}
+    }})
+
+ConvertTo-Json -InputObject $apps -Depth 10
 ";
 
         var result = await ExecInBcPodAsync(client, podName, containerName, script);
@@ -104,6 +137,11 @@ Get-NAVAppInfo -ServerInstance bc -TenantSpecificProperties -Tenant '{tenant}' |
                 Regex.IsMatch(p.GetString() ?? "", pattern, RegexOptions.IgnoreCase)).ToList();
         }
 
+        if (sortByDependencies)
+        {
+            apps = SortByDependencies(apps);
+        }
+
         return new
         {
             Container = appName,
@@ -112,37 +150,97 @@ Get-NAVAppInfo -ServerInstance bc -TenantSpecificProperties -Tenant '{tenant}' |
         };
     }
 
+    private static bool IsFlagSet(string? value)
+    {
+        return bool.TryParse(value, out var parsed) && parsed;
+    }
+
+    private static List<JsonElement> SortByDependencies(List<JsonElement> apps)
+    {
+        var indexesByAppId = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < apps.Count; index++)
+        {
+            var appId = GetStringProperty(apps[index], "AppId");
+            if (string.IsNullOrWhiteSpace(appId))
+                continue;
+
+            if (!indexesByAppId.TryGetValue(appId, out var indexes))
+            {
+                indexes = new List<int>();
+                indexesByAppId[appId] = indexes;
+            }
+
+            indexes.Add(index);
+        }
+
+        var sorted = new List<JsonElement>(apps.Count);
+        var visited = new bool[apps.Count];
+        var visiting = new bool[apps.Count];
+
+        for (var index = 0; index < apps.Count; index++)
+        {
+            Visit(index);
+        }
+
+        return sorted;
+
+        void Visit(int index)
+        {
+            if (visited[index])
+                return;
+
+            if (visiting[index])
+                return;
+
+            visiting[index] = true;
+
+            foreach (var dependencyId in GetDependencyIds(apps[index]))
+            {
+                if (!indexesByAppId.TryGetValue(dependencyId, out var dependencyIndexes))
+                    continue;
+
+                foreach (var dependencyIndex in dependencyIndexes)
+                {
+                    if (dependencyIndex != index)
+                        Visit(dependencyIndex);
+                }
+            }
+
+            visiting[index] = false;
+            visited[index] = true;
+            sorted.Add(apps[index]);
+        }
+    }
+
+    private static IEnumerable<string> GetDependencyIds(JsonElement app)
+    {
+        if (!app.TryGetProperty("Dependencies", out var dependencies))
+            yield break;
+
+        if (dependencies.ValueKind != JsonValueKind.Array)
+            yield break;
+
+        foreach (var dependency in dependencies.EnumerateArray())
+        {
+            var dependencyId = GetStringProperty(dependency, "Id");
+            if (!string.IsNullOrWhiteSpace(dependencyId))
+                yield return dependencyId;
+        }
+    }
+
+    private static string? GetStringProperty(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var property))
+            return null;
+
+        return property.ValueKind == JsonValueKind.String
+            ? property.GetString()
+            : property.ToString();
+    }
+
     private static string WildcardToRegex(string pattern)
     {
         return "^" + Regex.Escape(pattern).Replace("\\*", ".*") + "$";
     }
 
-    private async Task<ExecResult> ExecInBcPodAsync(Kubernetes client, string podName, string containerName, string psScript)
-    {
-        var command = new[] { "powershell", "-NoProfile", "-Command", psScript };
-        var ws = await client.WebSocketNamespacedPodExecAsync(
-            podName, Namespace, command, containerName,
-            stderr: true, stdin: false, stdout: true, tty: false);
-
-        using var demux = new k8s.StreamDemuxer(ws);
-        demux.Start();
-
-        var stdoutStream = demux.GetStream(1, null);
-        var stderrStream = demux.GetStream(2, null);
-
-        using var stdoutReader = new StreamReader(stdoutStream);
-        using var stderrReader = new StreamReader(stderrStream);
-
-        var stdoutTask = stdoutReader.ReadToEndAsync();
-        var stderrTask = stderrReader.ReadToEndAsync();
-        await Task.WhenAll(stdoutTask, stderrTask);
-
-        var stderr = stderrTask.Result;
-        if (!string.IsNullOrWhiteSpace(stderr))
-        {
-            Logger.LogWarning("BC pod exec stderr: {StdErr}", stderr);
-        }
-
-        return new ExecResult(stdoutTask.Result, stderr);
-    }
 }

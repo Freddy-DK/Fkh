@@ -1,16 +1,40 @@
 {
   "folders": [
     {
-      "path": "fkh-vsix"
+      "path": "fkh-vsix",
+      "name": "FKH VSCode Extension"
     },
     {
-      "path": "fkh-backend"
+      "path": "fkh-web",
+      "name": "FKH Web App"
     },
     {
-      "path": "fkh-cli"
+      "path": "fkh-cli",
+      "name": "FKH CLI"
     },
     {
-      "path": "terraform"
+      "path": "fkh-backend",
+      "name": "FKH Backend"
+    },
+    {
+      "path": "installation",
+      "name": "Installation documentation"
+    },
+    {
+      "path": "mssql-fts",
+      "name": "MSSQL with FTS Docker Image"
+    },
+    {
+      "path": "terraform",
+      "name": "Terraform configuration"
+    },
+    {
+      "path": "ContainerScripts",
+      "name": "Container Scripts"
+    },
+    {
+      "path": "deployment-repo",
+      "name": "Deployment Repository Template"
     },
     {
       "path": "."

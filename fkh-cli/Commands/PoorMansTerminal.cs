@@ -94,6 +94,7 @@ sealed class PoorMansTerminal
             using var httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
             var request = new HttpRequestMessage(HttpMethod.Post, $"{_backendUrl}/InvokeScript");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            ClientCommand.AddProtocolHeaders(request);
             request.Content = new StringContent(
                 JsonSerializer.Serialize(new FunctionInvokeRequest
                 {

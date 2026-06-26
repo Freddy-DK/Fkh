@@ -6,7 +6,7 @@ Fkh uses GitHub team membership to decide who can provision containers and who h
 
 Terraform does not create or manage these teams. You create the teams in GitHub, then reference them in `deployment.tfvars`.
 
-> **Already have teams from another Fkh deployment?** You can reuse them. Skip to [4.4 — Update deployment.tfvars](#44--update-deploymenttfvars) and reference the existing team names.
+> **Already have teams from another Fkh deployment?** You can reuse them. Skip to [4.5 — Update deployment.tfvars](#45--update-deploymenttfvars) and reference the existing team names.
 
 ## Access model
 
@@ -14,6 +14,7 @@ Terraform does not create or manage these teams. You create the teams in GitHub,
 |---|---|---|
 | Member team | Users who can provision Business Central containers | Yes |
 | Admin team | Users with admin access; they also get normal member access | Optional |
+| Support team | Users with support access; permissions are enforced in the backend | Optional |
 
 ---
 
@@ -46,7 +47,23 @@ Skip this section if you do not need a separate admin tier.
 
 Admin team members automatically receive normal user access. You do not need to add them to both teams.
 
-## 4.3 — Optional: allow teams from another organization
+## 4.3 — Create the support team (optional)
+
+Skip this section if you do not need a separate support tier.
+
+1. Open this URL, replacing `YOUR-ORG` with your GitHub organization name:
+
+   ```text
+   https://github.com/orgs/YOUR-ORG/new-team
+   ```
+
+2. Enter a team name, for example `Fkh-support`.
+3. Select **Create team**.
+4. Add the users who should have support access.
+
+Support permissions are defined in the Fkh backend. Support users are flagged with `_isSupport` on each request so you can add operation-specific rules later.
+
+## 4.4 — Optional: allow teams from another organization
 
 You can grant access to teams in other GitHub organizations. Add each organization and team pair to `allowed_org_teams` in `deployment.tfvars`.
 
@@ -61,7 +78,7 @@ allowed_org_teams = [
 
 The administrator of each GitHub organization is responsible for creating the team and managing its members.
 
-## 4.4 — Update deployment.tfvars
+## 4.5 — Update deployment.tfvars
 
 In your deployment repository, open `config/deployment.tfvars` and set the team references.
 
@@ -74,6 +91,16 @@ allowed_org_teams = [
 # Admin teams: users in these teams get admin access and normal access
 admin_org_teams = [
   { org = "my-company", team = "Fkh-admins" }
+]
+
+# Support teams: users in these teams get support access
+support_org_teams = [
+  # { org = "my-company", team = "Fkh-support" }
+]
+
+# Explicit users: grant access by GitHub username (role = admin, member, or support)
+allowed_users = [
+  # { user = "octocat", role = "member" }
 ]
 ```
 

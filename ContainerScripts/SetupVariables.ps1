@@ -24,4 +24,5 @@ if ($containerSasUrl) {
         }
     }
 }
+$ENV:ACCEPT_OUTDATED = 'Y'
 . c:\run\SetupVariables.ps1

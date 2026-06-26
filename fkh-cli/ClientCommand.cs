@@ -63,13 +63,7 @@ abstract class ClientCommand
     /// </summary>
     protected static TokenProvider CreateTokenProvider(Dictionary<string, string> parameters, CliSettings settings)
     {
-        string? explicitOidcToken = null;
-        if (parameters.TryGetValue("oidcToken", out var oidc) && !string.IsNullOrWhiteSpace(oidc))
-        {
-            explicitOidcToken = oidc;
-            parameters.Remove("oidcToken");
-        }
-        return new TokenProvider(useOidc: settings.UseOidc, explicitOidcToken: explicitOidcToken, ghUser: settings.User);
+        return new TokenProvider(useOidc: settings.UseOidc, ghUser: settings.User);
     }
 
     /// <summary>
@@ -92,6 +86,18 @@ abstract class ClientCommand
         }
 
         return url;
+    }
+
+    internal const int ProtocolVersion = 1;
+    internal const string ClientApp = "CLI";
+
+    /// <summary>
+    /// Adds the standard Fkh protocol headers (protocol version + client identifier) to a request.
+    /// </summary>
+    internal static void AddProtocolHeaders(System.Net.Http.HttpRequestMessage request)
+    {
+        request.Headers.Add("X-Fkh-Protocol-Version", ProtocolVersion.ToString());
+        request.Headers.Add("X-Fkh-Client", ClientApp);
     }
 
     // ── Shared K8s / process helpers ─────────────────────────────────────────
@@ -354,6 +360,7 @@ static class ClientCommands
 {
     public static List<ClientCommand> All { get; } =
     [
+        new ApplyALGoOverridesCommand(),
         new PublishAppCommand(),
         new UploadDatabaseCommand(),
         new DownloadDatabaseCommand(),

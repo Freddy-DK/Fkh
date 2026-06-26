@@ -77,6 +77,7 @@ sealed class CopyToContainerCommand : ClientCommand
 
         var request = new HttpRequestMessage(HttpMethod.Post, $"{backendUrl}/CopyFileToContainer");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        AddProtocolHeaders(request);
         request.Content = content;
 
         var response = await httpClient.SendAsync(request);
