@@ -47,17 +47,19 @@ $inArgs = @{{
     Tenant = '{tenant}'
 }}
 
-Get-NAVAppInfo @inArgs |
+$apps = @(Get-NAVAppInfo @inArgs |
     ForEach-Object {{ Get-NAVAppInfo -Id ""$($_.AppId)"" -Publisher $_.Publisher -Name $_.Name -Version $_.Version @inArgs }} |
     Select-Object @{{N='AppId';E={{$_.AppId.Value.ToString()}}}}, Name, Publisher, @{{N='Version';E={{$_.Version.ToString()}}}},
         @{{N='Dependencies';E={{
-            @($_.Dependencies | ForEach-Object {{ $_ | Select-Object @{{N='Id';E={{
+            $dependencies = @($_.Dependencies | ForEach-Object {{ $_ | Select-Object @{{N='Id';E={{
                 $dependencyId = if ($_.Id) {{ $_.Id }} else {{ $_.AppId }}
                 if ($null -ne $dependencyId.Value) {{ $dependencyId.Value.ToString() }} else {{ $dependencyId.ToString() }}
             }}}}, Publisher, Name, @{{N='Version';E={{$_.MinVersion.ToString()}}}} }})
+            $dependencies
         }}}},
-        ExtensionType, Scope, IsInstalled, IsPublished, SyncState, NeedsUpgrade |
-    ConvertTo-Json -Depth 10
+        ExtensionType, Scope, IsInstalled, IsPublished, SyncState, NeedsUpgrade)
+
+ConvertTo-Json -InputObject $apps -Depth 10
 ";
 
         var result = await ExecInBcPodAsync(client, podName, containerName, script);
@@ -226,32 +228,4 @@ Get-NAVAppInfo @inArgs |
         return "^" + Regex.Escape(pattern).Replace("\\*", ".*") + "$";
     }
 
-    private async Task<ExecResult> ExecInBcPodAsync(Kubernetes client, string podName, string containerName, string psScript)
-    {
-        var command = new[] { "powershell", "-NoProfile", "-Command", psScript };
-        var ws = await client.WebSocketNamespacedPodExecAsync(
-            podName, Namespace, command, containerName,
-            stderr: true, stdin: false, stdout: true, tty: false);
-
-        using var demux = new k8s.StreamDemuxer(ws);
-        demux.Start();
-
-        var stdoutStream = demux.GetStream(1, null);
-        var stderrStream = demux.GetStream(2, null);
-
-        using var stdoutReader = new StreamReader(stdoutStream);
-        using var stderrReader = new StreamReader(stderrStream);
-
-        var stdoutTask = stdoutReader.ReadToEndAsync();
-        var stderrTask = stderrReader.ReadToEndAsync();
-        await Task.WhenAll(stdoutTask, stderrTask);
-
-        var stderr = stderrTask.Result;
-        if (!string.IsNullOrWhiteSpace(stderr))
-        {
-            Logger.LogWarning("BC pod exec stderr: {StdErr}", stderr);
-        }
-
-        return new ExecResult(stdoutTask.Result, stderr);
-    }
 }

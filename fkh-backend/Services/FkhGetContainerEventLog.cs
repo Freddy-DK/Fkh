@@ -56,7 +56,7 @@ try {
 }
 ";
 
-        var result = await ExecInBcPodPwshAsync(client, podName, containerName, script);
+        var result = await ExecInBcPodAsync(client, podName, containerName, script);
 
         var base64Content = result.Stdout.Trim();
         if (string.IsNullOrWhiteSpace(base64Content))
