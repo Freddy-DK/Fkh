@@ -51,14 +51,10 @@ Get-NAVAppInfo @inArgs |
     ForEach-Object {{ Get-NAVAppInfo -Id ""$($_.AppId)"" -Publisher $_.Publisher -Name $_.Name -Version $_.Version @inArgs }} |
     Select-Object @{{N='AppId';E={{$_.AppId.Value.ToString()}}}}, Name, Publisher, @{{N='Version';E={{$_.Version.ToString()}}}},
         @{{N='Dependencies';E={{
-            @($_.Dependencies | Select-Object
-                @{{N='Id';E={{
-                    $dependencyId = if ($_.Id) {{ $_.Id }} else {{ $_.AppId }}
-                    if ($null -ne $dependencyId.Value) {{ $dependencyId.Value.ToString() }} else {{ $dependencyId.ToString() }}
-                }}}},
-                Publisher,
-                Name,
-                @{{N='Version';E={{$_.MinVersion.ToString()}}}})
+            @($_.Dependencies | ForEach-Object {{ $_ | Select-Object @{{N='Id';E={{
+                $dependencyId = if ($_.Id) {{ $_.Id }} else {{ $_.AppId }}
+                if ($null -ne $dependencyId.Value) {{ $dependencyId.Value.ToString() }} else {{ $dependencyId.ToString() }}
+            }}}}, Publisher, Name, @{{N='Version';E={{$_.MinVersion.ToString()}}}} }})
         }}}},
         ExtensionType, Scope, IsInstalled, IsPublished, SyncState, NeedsUpgrade |
     ConvertTo-Json -Depth 10
