@@ -1,10 +1,10 @@
 # fkh-cli
 
-**.NET 8** global tool (`fkh`) that proxies most operations to the Fkh backend via the **function catalog**, plus **client-only** commands that run locally (AL-Go overrides, deployment repo sync, file publish, etc.).
+Multi-targeted **.NET 8 / .NET 10** global tool (`fkh`) that proxies most operations to the Fkh backend via the **function catalog**, plus **client-only** commands that run locally (AL-Go overrides, deployment repo sync, file publish, etc.).
 
 ## Tech stack
 
-- **C# / .NET 8** console app
+- **C# / .NET 8 and .NET 10** console app
 - **`PackAsTool`** → NuGet package `fkh`, command name `fkh`
 - **Azure.Storage.Blobs** for some client-side flows
 - Embedded **ALGoScripts** resources
@@ -31,7 +31,9 @@ fkh-cli/
 ```powershell
 cd fkh-cli
 dotnet build fkh-cli.csproj
-dotnet publish fkh-cli.csproj -c Release
+dotnet build fkh-cli.csproj -f net8.0
+dotnet build fkh-cli.csproj -f net10.0
+dotnet publish fkh-cli.csproj -c Release -f net10.0
 dotnet pack -c Release -o ./nupkg
 dotnet tool install --global --add-source ./nupkg fkh
 ```

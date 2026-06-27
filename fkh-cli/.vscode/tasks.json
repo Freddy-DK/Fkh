@@ -20,6 +20,8 @@
             "args": [
                 "publish",
                 "${workspaceFolder}/fkh-cli.csproj",
+                "--framework",
+                "net10.0",
                 "/property:GenerateFullPaths=true",
                 "/consoleloggerparameters:NoSummary;ForceNoAlign"
             ],
@@ -33,7 +35,9 @@
                 "watch",
                 "run",
                 "--project",
-                "${workspaceFolder}/fkh-cli.csproj"
+                "${workspaceFolder}/fkh-cli.csproj",
+                "--framework",
+                "net10.0"
             ],
             "problemMatcher": "$msCompile"
         }

@@ -35,6 +35,13 @@ Note: --useOIDC is exclusive — when specified, no other auth methods are tried
 var asJson = args.Contains("--asJson", StringComparer.OrdinalIgnoreCase);
 var useOidc = args.Contains("--useOIDC", StringComparer.OrdinalIgnoreCase);
 
+#if NET8_0
+if (!asJson && (args.Length == 0 || !string.Equals(args[0], "--completions", StringComparison.OrdinalIgnoreCase)))
+{
+    Console.Error.WriteLine($"{Ansi.Yellow}Warning: You are running the .NET 8 build of fkh. .NET 10 is the preferred runtime; install .NET 10 to use the preferred build.{Ansi.Reset}");
+}
+#endif
+
 try
 {
     if (args.Length > 0 && string.Equals(args[0], "--version", StringComparison.OrdinalIgnoreCase))

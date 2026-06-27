@@ -76,7 +76,7 @@ There are **no automated unit test projects** in this repository. Validate via l
 
 ## Coding standards (repo-wide)
 
-- **C#:** .NET 8, `Nullable` and `ImplicitUsings` enabled. Namespace `Fkh`. Services prefixed `Fkh*`. Thin HTTP functions inherit `FunctionBase`.
+- **C#:** Backend targets .NET 10; CLI targets .NET 8 and .NET 10. `Nullable` and `ImplicitUsings` enabled. Namespace `Fkh`. Services prefixed `Fkh*`. Thin HTTP functions inherit `FunctionBase`.
 - **TypeScript:** `strict` mode in `fkh-web` and `fkh-vsix`. No ESLint/Prettier at repo level — follow existing file style.
 - **JSON API:** camelCase serialization on the backend.
 - **Secrets:** Never commit passwords, private keys, or PATs. `deployment.tfvars` holds IDs and names only.

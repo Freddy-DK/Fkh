@@ -322,7 +322,9 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: |
+            8.0.x
+            10.0.x
 
       - name: Azure Login
         if: vars.AZURE_KEY_VAULT_CERTIFICATE != ''
@@ -366,14 +368,16 @@ jobs:
       - name: Sign assemblies
         if: vars.AZURE_KEY_VAULT_CERTIFICATE != ''
         run: |
-          AzureSignTool sign \
-            --azure-key-vault-url ${{ secrets.AZURE_KEY_VAULT_URL }} \
-            --azure-key-vault-accesstoken "${{ steps.get-token.outputs.token }}" \
-            --azure-key-vault-certificate ${{ vars.AZURE_KEY_VAULT_CERTIFICATE }} \
-            --timestamp-rfc3161 http://timestamp.digicert.com \
-            --timestamp-digest sha256 \
-            -v \
-            bin/Release/net8.0/fkh.dll
+          for assembly in bin/Release/net8.0/fkh.dll bin/Release/net10.0/fkh.dll; do
+            AzureSignTool sign \
+              --azure-key-vault-url ${{ secrets.AZURE_KEY_VAULT_URL }} \
+              --azure-key-vault-accesstoken "${{ steps.get-token.outputs.token }}" \
+              --azure-key-vault-certificate ${{ vars.AZURE_KEY_VAULT_CERTIFICATE }} \
+              --timestamp-rfc3161 http://timestamp.digicert.com \
+              --timestamp-digest sha256 \
+              -v \
+              "$assembly"
+          done
 
       - name: Pack
         run: dotnet pack -c Release -o ./nupkg --no-build

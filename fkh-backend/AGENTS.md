@@ -1,10 +1,10 @@
 # fkh-backend
 
-Azure Functions **v4** app (.NET 8 isolated worker) that authenticates GitHub users and orchestrates Business Central containers on AKS.
+Azure Functions **v4** app (.NET 10 isolated worker) that authenticates GitHub users and orchestrates Business Central containers on AKS.
 
 ## Tech stack
 
-- **C# / .NET 8** — `Microsoft.Azure.Functions.Worker`
+- **C# / .NET 10** — `Microsoft.Azure.Functions.Worker`
 - **Azure SDKs:** Identity, AKS, ACR, Blob Storage, Monitor
 - **KubernetesClient** — deployments, pods, scaling
 - **JWT / OIDC** — GitHub token validation
@@ -48,7 +48,7 @@ Deploy to Azure (after infra exists):
 func azure functionapp publish fkh-<deployment>-backend --dotnet-isolated
 ```
 
-CI: `.github/workflows/DeployFkhFullStack.yml`, `UpdateFkhBackEnd.yml` — .NET 8 + Azure Functions Core Tools v4.
+CI: `.github/workflows/DeployFkhFullStack.yml`, `UpdateFkhBackEnd.yml` — .NET 10 + Azure Functions Core Tools v4.
 
 ## Test commands
 

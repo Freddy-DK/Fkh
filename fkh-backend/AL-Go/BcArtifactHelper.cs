@@ -11,7 +11,7 @@
 //   - acceptInsiderEula / acceptEula (always accepted here)
 //   - SecondToLastMajor select mode
 //
-// Requirements: .NET 8 / C# 12 or later.
+// Requirements: .NET 10 / C# 14 or later.
 
 using System;
 using System.Collections.Generic;
