@@ -12,8 +12,9 @@ interface HeaderProps {
 }
 
 export function Header({ user, orgName, isAdmin, onStopFkh, onSignOut }: HeaderProps) {
+  const userDisplayName = user.name ? `${user.name} (@${user.login})` : `@${user.login}`;
   const menuItems: MenuEntry[] = [
-    { label: 'Stop Fkh', onClick: onStopFkh, danger: true, disabled: !isAdmin },
+    { label: 'Stop Fkh Deployment', onClick: onStopFkh, danger: true, disabled: !isAdmin },
     { separator: true },
     { label: 'Sign out', onClick: onSignOut },
     { label: 'Exit', onClick: () => window.close() },
@@ -27,7 +28,7 @@ export function Header({ user, orgName, isAdmin, onStopFkh, onSignOut }: HeaderP
       </div>
       <div className="header-right">
         <img src={user.avatar_url} alt={user.login} className="header-avatar" />
-        <span className="header-user">{user.name ?? user.login}</span>
+        <span className="header-user" title={userDisplayName}>{userDisplayName}</span>
         <DropdownMenu items={menuItems} triggerClass="btn btn-sm btn-secondary" trigger="☰" />
       </div>
     </header>

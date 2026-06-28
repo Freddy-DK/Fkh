@@ -207,7 +207,8 @@ export function App() {
 
   const handleStopFkh = useCallback(async () => {
     if (!token || !backendUrl) return;
-    if (!window.confirm('Are you sure you want to stop the entire Fkh system? All containers will become unavailable.')) return;
+    const deploymentLabel = orgName ? `the Fkh deployment for ${orgName}` : 'the Fkh deployment';
+    if (!window.confirm(`Are you sure you want to stop ${deploymentLabel}? All containers will become unavailable.`)) return;
     try {
       await invokeFunction(backendUrl, token, 'StopFkh', {});
       setSystemStopped(true);
@@ -217,10 +218,10 @@ export function App() {
       } else if (e instanceof AuthorizationError) {
         handleAuthFailure(e);
       } else {
-        setContainersError(e instanceof Error ? e.message : 'Stop Fkh failed');
+        setContainersError(e instanceof Error ? e.message : 'Stop Fkh Deployment failed');
       }
     }
-  }, [token, backendUrl, handleAuthFailure]);
+  }, [token, backendUrl, handleAuthFailure, orgName]);
 
   // Loading spinner while checking stored token
   if (checking) {
@@ -259,6 +260,7 @@ export function App() {
           <SystemStopped
             backendUrl={backendUrl}
             token={token}
+            orgName={orgName}
             isAdmin={isAdmin}
             onStarted={() => {
               setSystemStopped(false);
