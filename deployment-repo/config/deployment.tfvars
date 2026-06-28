@@ -187,7 +187,7 @@ allowed_ado_connections = [
 
 # GitHub App — triggers image-build workflows in this deployment repo
 github_app_id              = "1234567"  # paste your App ID here
-github_app_client_id       = ""          # Client ID of the GitHub App (for web app OAuth login). Find it on the GitHub App settings page.
+github_app_client_id       = "Iv1.0000000000000000"  # Client ID of the GitHub App. Find it on the GitHub App settings page.
 # github_app_private_key   = ""  # set as GitHub Secret: GH_APP_PRIVATE_KEY
 github_app_installation_id = "123456789"  # paste your Installation ID here
 

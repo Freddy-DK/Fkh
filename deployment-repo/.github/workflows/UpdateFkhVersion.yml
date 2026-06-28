@@ -10,7 +10,7 @@
 # ── Required GitHub Secrets ─────────────────────────────────────────────────
 #   GH_APP_PRIVATE_KEY   - PEM-encoded private key of the GitHub App
 #
-# The GitHub App ID is read from config/deployment.tfvars.
+# The GitHub App Client ID is read from config/deployment.tfvars.
 # ============================================================================
 
 name: Update Fkh Version
@@ -44,22 +44,25 @@ jobs:
       - name: Checkout deployment repo
         uses: actions/checkout@v6
 
-      - name: Parse GitHub App ID from tfvars
+      - name: Parse GitHub App Client ID from tfvars
         id: app
         shell: pwsh
         run: |
-          $line = Get-Content config/deployment.tfvars | Where-Object { $_ -match '^\s*github_app_id\s*=' } | Select-Object -First 1
+          $line = Get-Content config/deployment.tfvars | Where-Object { $_ -match '^\s*github_app_client_id\s*=' } | Select-Object -First 1
           if ($line -match '=\s*"([^"]+)"') {
-            "app_id=$($Matches[1])" >> $env:GITHUB_OUTPUT
+            if ([string]::IsNullOrWhiteSpace($Matches[1])) {
+              throw "github_app_client_id is empty in config/deployment.tfvars"
+            }
+            "client_id=$($Matches[1])" >> $env:GITHUB_OUTPUT
           } else {
-            throw "Could not find github_app_id in config/deployment.tfvars"
+            throw "Could not find github_app_client_id in config/deployment.tfvars"
           }
 
       - name: Generate GitHub App token
         id: app-token
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ steps.app.outputs.app_id }}
+          client-id: ${{ steps.app.outputs.client_id }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
 
       - name: Setup .NET SDK

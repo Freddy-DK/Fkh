@@ -160,12 +160,14 @@ Leave this list empty if you do not need that scenario.
 
 ```hcl
 github_app_id              = "123456"
+github_app_client_id       = "Iv1.0000000000000000"
 github_app_installation_id = "12345678"
 ```
 
 | Setting | Where to find it |
 |---|---|
 | `github_app_id` | Step 3.4 → GitHub App settings page |
+| `github_app_client_id` | Step 3.4 → GitHub App settings page |
 | `github_app_installation_id` | Step 3.4 → final number in the GitHub App installation URL |
 
 Do not put the GitHub App private key in `deployment.tfvars`. You will store it as a GitHub Secret.

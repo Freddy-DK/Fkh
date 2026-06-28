@@ -261,7 +261,7 @@ variable "github_app_id" {
 }
 
 variable "github_app_client_id" {
-  description = "Client ID of the GitHub App, used for OAuth login in the web app. Find it on the GitHub App settings page."
+  description = "Client ID of the GitHub App. Used by GitHub Actions app-token workflows and OAuth login in the web app. Find it on the GitHub App settings page."
   type        = string
   default     = ""
 }

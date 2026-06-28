@@ -4,10 +4,10 @@
 
 In this step you create and install a GitHub App for Fkh.
 
-The GitHub App is used for two things:
+The GitHub App is used for:
 
 - The Fkh backend uses it to trigger image-build workflows when a requested Business Central image is missing from Azure Container Registry.
-- The deployment workflow uses it to sync deployment outputs back to the deployment repository as GitHub Actions secrets.
+- The deployment workflows use it to create installation tokens for updating the deployment repo and syncing deployment outputs back as GitHub Actions secrets.
 - If the **web app** is enabled, users authenticate via the GitHub App's device code flow to get a user access token.
 
 > **Already have a GitHub App from another Fkh deployment?** You can reuse it. Install the existing app on the new deployment repository, note the new **Installation ID**, and continue from [3.4 — Save your values](#34--save-your-values).
@@ -99,7 +99,7 @@ Record these values for Step 5:
 | Value | Where to find it |
 |---|---|
 | App ID | GitHub App settings page, near the top |
-| Client ID | GitHub App settings page, below the App ID *(needed only if web app is enabled)* |
+| Client ID | GitHub App settings page, below the App ID |
 | Installation ID | The number at the end of the installation URL |
 | Private Key | The `.pem` file downloaded in 3.2 |
 

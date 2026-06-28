@@ -135,7 +135,10 @@ jobs:
             throw "fkhDeploymentName ('$deploymentName') must contain only lowercase letters and numbers. Uppercase, hyphens, and special characters are not allowed (Azure storage accounts require this)."
           }
           $githubAppId    = Get-TfVar "github_app_id" $varFile
-          try { $githubAppClientId = Get-TfVar "github_app_client_id" $varFile } catch { $githubAppClientId = "" }
+          $githubAppClientId = Get-TfVar "github_app_client_id" $varFile
+          if ([string]::IsNullOrWhiteSpace($githubAppClientId)) {
+            throw "github_app_client_id is required in $varFile"
+          }
           try { $stateLocation = Get-TfVar "state_location" $varFile } catch { $stateLocation = "" }
           if (-not $stateLocation) { $stateLocation = $location }
 
@@ -470,7 +473,7 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@v3
         with:
-          client-id: ${{ steps.parse.outputs.github_app_id }}
+          client-id: ${{ steps.parse.outputs.github_app_client_id }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
 
       - name: Sync GitHub Actions secrets to deployment repo
