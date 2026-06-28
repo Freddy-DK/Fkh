@@ -3,6 +3,17 @@ import type { FunctionCatalogResponse, ListContainersResponse } from './types';
 const PROTOCOL_VERSION = '1';
 const CLIENT_APP = 'Web App';
 
+export class AuthorizationError extends Error {
+  constructor(status: number, details?: string) {
+    const guidance = status === 401
+      ? 'Sign in again; the stored GitHub token is missing, invalid, or expired.'
+      : 'This GitHub token cannot access the configured Fkh deployment. Sign in again and grant read:org, or use a PAT with read:org for a user in the configured Fkh team.';
+    const trimmedDetails = details?.trim();
+    super(trimmedDetails ? `${guidance} Backend response: ${trimmedDetails}` : guidance);
+    this.name = 'AuthorizationError';
+  }
+}
+
 /** Thrown when the backend returns 503 indicating the AKS cluster is stopped. */
 export class SystemStoppedError extends Error {
   constructor(message?: string) {
@@ -11,20 +22,27 @@ export class SystemStoppedError extends Error {
   }
 }
 
-/** Resolve the Fkh backend URL.
- *  Priority: ?backendUrl= query param > build-time VITE_BACKEND_URL > localhost fallback.
- */
+function inferBackendUrlFromHostname(hostname: string): string {
+  const match = hostname.match(/^fkh-(.+)-web(?:[.-]|$)/i);
+  const deploymentName = match?.[1];
+  return deploymentName ? `https://fkh-${deploymentName}-backend.azurewebsites.net/api` : '';
+}
+
+/** Resolve the Fkh backend URL. */
 export function resolveBackendUrl(): string {
   const params = new URLSearchParams(window.location.search);
   const explicit = params.get('backendUrl');
   if (explicit) return explicit.replace(/\/+$/, '');
+
+  const host = window.location.hostname;
+  const inferred = inferBackendUrlFromHostname(host);
+  if (inferred) return inferred;
 
   // Build-time default (baked in by CI/CD)
   const buildTime = import.meta.env.VITE_BACKEND_URL;
   if (buildTime) return buildTime.replace(/\/+$/, '');
 
   // Local dev
-  const host = window.location.hostname;
   if (host === 'localhost' || host === '127.0.0.1') {
     return 'http://localhost:7071/api';
   }
@@ -69,6 +87,9 @@ export async function listContainers(backendUrl: string, token: string, all: boo
 
   const res = await apiFetch(backendUrl, 'ListContainers', token, { parameters: params });
   if (res.status === 503) throw new SystemStoppedError();
+  if (res.status === 401 || res.status === 403) {
+    throw new AuthorizationError(res.status, await res.text());
+  }
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`ListContainers failed (${res.status}): ${text}`);
@@ -98,6 +119,9 @@ export async function invokeFunction(
   }
 
   if (res.status === 503) throw new SystemStoppedError();
+  if (res.status === 401 || res.status === 403) {
+    throw new AuthorizationError(res.status, await res.text());
+  }
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`${route} failed (${res.status}): ${text}`);

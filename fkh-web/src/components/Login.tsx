@@ -4,11 +4,12 @@ import { startDeviceFlow, pollDeviceFlow, type DeviceFlowCodes } from '../auth';
 interface LoginProps {
   backendUrl: string;
   clientId: string;
+  message: string | null;
   onToken: (token: string) => void;
   onPat: (token: string) => void;
 }
 
-export function Login({ backendUrl, clientId, onToken, onPat }: LoginProps) {
+export function Login({ backendUrl, clientId, message, onToken, onPat }: LoginProps) {
   const [mode, setMode] = useState<'choose' | 'device' | 'pat'>('choose');
   const [deviceCodes, setDeviceCodes] = useState<DeviceFlowCodes | null>(null);
   const [polling, setPolling] = useState(false);
@@ -80,7 +81,7 @@ export function Login({ backendUrl, clientId, onToken, onPat }: LoginProps) {
         <h1>Fkh</h1>
         <p className="login-subtitle">Sign in to manage your Business Central containers</p>
 
-        {error && <div className="error-banner">{error}</div>}
+        {(error || message) && <div className="error-banner">{error || message}</div>}
 
         {mode === 'choose' && (
           <div className="login-options">
