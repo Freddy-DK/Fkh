@@ -646,6 +646,13 @@ public static class FunctionCatalog
         },
         new FunctionDefinition
         {
+            Name = "GetCurrentUser",
+            Description = "Returns the authenticated Fkh username and authorization flags.",
+            Route = "GetCurrentUser",
+            Parameters = new List<FunctionParameterDefinition>()
+        },
+        new FunctionDefinition
+        {
             Name = "Status",
             Description = "Returns system status including Kubernetes nodes, BC containers, SQL, storage, quotas, and security. Admin only.",
             Route = "Status",

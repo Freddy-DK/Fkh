@@ -1,4 +1,4 @@
-import type { FunctionCatalogResponse, ListContainersResponse } from './types';
+import type { CurrentUserResponse, FunctionCatalogResponse, ListContainersResponse } from './types';
 
 const PROTOCOL_VERSION = '1';
 const CLIENT_APP = 'Web App';
@@ -95,6 +95,18 @@ export async function listContainers(backendUrl: string, token: string, all: boo
     throw new Error(`ListContainers failed (${res.status}): ${text}`);
   }
   return (await res.json()) as ListContainersResponse;
+}
+
+export async function getCurrentUser(backendUrl: string, token: string): Promise<CurrentUserResponse> {
+  const res = await apiFetch(backendUrl, 'GetCurrentUser', token, { parameters: {} });
+  if (res.status === 401 || res.status === 403) {
+    throw new AuthorizationError(res.status, await res.text());
+  }
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`GetCurrentUser failed (${res.status}): ${text}`);
+  }
+  return (await res.json()) as CurrentUserResponse;
 }
 
 /** Invoke a backend function and handle 202 retry polling. */

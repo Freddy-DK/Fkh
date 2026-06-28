@@ -193,6 +193,12 @@ Functions that accept file-type parameters use **`POST /<Route>`** with `multipa
 | SetSettings | `POST /SetSettings` | JSON | No | Sets a user setting (admins can set for any user, `_members`, `_admins`) |
 | ClearSettings | `POST /ClearSettings` | JSON | **Yes** | Clears settings for a user |
 
+### Current user
+
+| Function | Route | Method | Admin | Description |
+|---|---|---|---|---|
+| GetCurrentUser | `POST /GetCurrentUser` | JSON | No | Returns the authenticated Fkh username and authorization flags |
+
 ### VMs
 
 | Function | Route | Method | Admin | Description |
@@ -435,6 +441,20 @@ No parameters.
 ### Status (hidden)
 
 No parameters.
+
+### GetCurrentUser
+
+No parameters.
+
+Response:
+
+```json
+{
+  "username": "octocat",
+  "isAdmin": true,
+  "isSupport": false
+}
+```
 
 ### StopAllContainers
 

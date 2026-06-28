@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { GitHubUser, ContainerInfo } from './types';
 import { getStoredToken, storeToken, clearToken, validateToken } from './auth';
-import { resolveBackendUrl, getOrgNameFromUrl, listContainers, invokeFunction, SystemStoppedError, AuthorizationError } from './api';
+import { resolveBackendUrl, getOrgNameFromUrl, listContainers, invokeFunction, getCurrentUser, SystemStoppedError, AuthorizationError } from './api';
 import { Login } from './components/Login.tsx';
 import { Header } from './components/Header.tsx';
 import { ContainerList } from './components/ContainerList.tsx';
@@ -27,6 +27,7 @@ export function App() {
   const [containersLoading, setContainersLoading] = useState(false);
   const [containersError, setContainersError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [systemStopped, setSystemStopped] = useState(false);
 
@@ -67,6 +68,8 @@ export function App() {
     setUser(null);
     setContainers([]);
     setContainersError(null);
+    setShowAll(false);
+    setIsAdmin(false);
     setLoginMessage(null);
   }, []);
 
@@ -76,8 +79,39 @@ export function App() {
     setUser(null);
     setContainers([]);
     setContainersError(null);
+    setShowAll(false);
+    setIsAdmin(false);
     setLoginMessage(error.message);
   }, []);
+
+  useEffect(() => {
+    if (!token || !backendUrl) {
+      setIsAdmin(false);
+      return;
+    }
+
+    let cancelled = false;
+    getCurrentUser(backendUrl, token)
+      .then(currentUser => {
+        if (cancelled) return;
+        setIsAdmin(currentUser.isAdmin);
+        if (!currentUser.isAdmin) {
+          setShowAll(false);
+        }
+      })
+      .catch(e => {
+        if (cancelled) return;
+        setIsAdmin(false);
+        setShowAll(false);
+        if (e instanceof AuthorizationError) {
+          handleAuthFailure(e);
+        } else {
+          setContainersError(e instanceof Error ? e.message : 'Failed to load current user');
+        }
+      });
+
+    return () => { cancelled = true; };
+  }, [token, backendUrl, handleAuthFailure]);
 
   // Fetch containers
   const fetchContainers = useCallback(async (all?: boolean) => {
@@ -110,6 +144,8 @@ export function App() {
   }, [token, backendUrl, fetchContainers]);
 
   const handleToggleAll = useCallback(() => {
+    if (!isAdmin) return;
+
     setShowAll(prev => {
       const next = !prev;
       // Refetch with new setting
@@ -129,7 +165,7 @@ export function App() {
       }
       return next;
     });
-  }, [token, backendUrl, handleAuthFailure]);
+  }, [token, backendUrl, handleAuthFailure, isAdmin]);
 
   const handleStart = useCallback(async (name: string) => {
     if (!token || !backendUrl) return;
@@ -218,11 +254,12 @@ export function App() {
   if (systemStopped) {
     return (
       <div className="app">
-        <Header user={user} orgName={orgName} backendUrl={backendUrl} onStopFkh={handleStopFkh} onSignOut={handleSignOut} />
+        <Header user={user} orgName={orgName} backendUrl={backendUrl} isAdmin={isAdmin} onStopFkh={handleStopFkh} onSignOut={handleSignOut} />
         <main className="app-main">
           <SystemStopped
             backendUrl={backendUrl}
             token={token}
+            isAdmin={isAdmin}
             onStarted={() => {
               setSystemStopped(false);
               fetchContainers();
@@ -235,13 +272,14 @@ export function App() {
 
   return (
     <div className="app">
-      <Header user={user} orgName={orgName} backendUrl={backendUrl} onStopFkh={handleStopFkh} onSignOut={handleSignOut} />
+      <Header user={user} orgName={orgName} backendUrl={backendUrl} isAdmin={isAdmin} onStopFkh={handleStopFkh} onSignOut={handleSignOut} />
       <main className="app-main">
         <ContainerList
           containers={containers}
           loading={containersLoading}
           error={containersError}
           showAll={showAll}
+          canShowAll={isAdmin}
           onToggleAll={handleToggleAll}
           onRefresh={() => fetchContainers()}
           onStart={handleStart}

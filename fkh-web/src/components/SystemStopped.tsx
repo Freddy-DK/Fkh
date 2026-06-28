@@ -4,10 +4,11 @@ import { startFkh } from '../api';
 interface SystemStoppedProps {
   backendUrl: string;
   token: string;
+  isAdmin: boolean;
   onStarted: () => void;
 }
 
-export function SystemStopped({ backendUrl, token, onStarted }: SystemStoppedProps) {
+export function SystemStopped({ backendUrl, token, isAdmin, onStarted }: SystemStoppedProps) {
   const [starting, setStarting] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +42,8 @@ export function SystemStopped({ backendUrl, token, onStarted }: SystemStoppedPro
         <button
           className="btn btn-primary btn-lg"
           onClick={handleStart}
-          disabled={starting}
+          disabled={starting || !isAdmin}
+          title={!isAdmin ? 'Administrators only' : undefined}
         >
           {starting ? 'Starting...' : 'Start System'}
         </button>

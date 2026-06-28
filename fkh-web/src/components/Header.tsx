@@ -6,13 +6,14 @@ interface HeaderProps {
   user: GitHubUser;
   orgName: string;
   backendUrl: string;
+  isAdmin: boolean;
   onStopFkh: () => void;
   onSignOut: () => void;
 }
 
-export function Header({ user, orgName, onStopFkh, onSignOut }: HeaderProps) {
+export function Header({ user, orgName, isAdmin, onStopFkh, onSignOut }: HeaderProps) {
   const menuItems: MenuEntry[] = [
-    { label: 'Stop Fkh', onClick: onStopFkh, danger: true },
+    { label: 'Stop Fkh', onClick: onStopFkh, danger: true, disabled: !isAdmin },
     { separator: true },
     { label: 'Sign out', onClick: onSignOut },
     { label: 'Exit', onClick: () => window.close() },
