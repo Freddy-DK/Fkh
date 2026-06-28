@@ -117,7 +117,7 @@ function ContainerCard({
           {container.autoStop && <DetailRow icon="⏰" label="AutoStop" value={container.autoStop} />}
           {container.repo && <DetailRow icon="📁" label="Repo" value={container.repo} />}
           {container.project && <DetailRow icon="📂" label="Project" value={container.project} />}
-          {container.webClient && (
+          {container.webClient && isRunning && (
             <div className="detail-row">
               <span className="detail-icon">🔗</span>
               <span className="detail-label">WebClient:</span>
