@@ -115,7 +115,7 @@ public abstract class FkhServiceBase
             var updated = new X509Certificate2Collection();
             foreach (var cert in config.SslCaCerts)
             {
-                updated.Add(new X509Certificate2(cert.RawData, (string?)null, X509KeyStorageFlags.EphemeralKeySet));
+                updated.Add(X509CertificateLoader.LoadCertificate(cert.RawData));
             }
             config.SslCaCerts = updated;
         }

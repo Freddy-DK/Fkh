@@ -20,11 +20,11 @@
     <PackageReference Include="Microsoft.Azure.Functions.Worker.Sdk" Version="2.0.7" />
     <!-- Kubernetes client for AKS operations -->
     <PackageReference Include="KubernetesClient" Version="19.0.2" />
-    <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.17.0" />
+    <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.19.1" />
     <!-- JWT signing for GitHub App authentication -->
-    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.17.0" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.19.1" />
     <!-- Microsoft Graph SDK for AAD App Registration management -->
-    <PackageReference Include="Microsoft.Graph" Version="5.78.0" />
+    <PackageReference Include="Microsoft.Graph" Version="6.2.0" />
   </ItemGroup>
   <ItemGroup>
     <None Update="scripts\**">
