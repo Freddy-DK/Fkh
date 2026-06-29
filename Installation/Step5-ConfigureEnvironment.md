@@ -133,6 +133,10 @@ support_org_teams = [
 allowed_users = [
   # { user = "octocat", role = "member" }
 ]
+
+common_containers = [
+  # "common-*"
+]
 ```
 
 | Setting | What it controls |
@@ -141,8 +145,11 @@ allowed_users = [
 | `admin_org_teams` | Teams whose members get admin access and normal access |
 | `support_org_teams` | Teams whose members get support access |
 | `allowed_users` | Explicit GitHub usernames and roles (`admin`, `member`, or `support`) |
+| `common_containers` | Container app name patterns that all members can access |
 
 > **Important:** organization and team names are case-sensitive.
+
+`common_containers` patterns are matched against the full sanitized container app name. Use `*` to match any number of characters and `?` to match exactly one character. For example, `common-*` matches `common-bc` and `common-demo`, while `demo-??` matches `demo-us`.
 
 ### OIDC repositories
 

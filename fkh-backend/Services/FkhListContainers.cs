@@ -11,10 +11,7 @@ public class FkhListContainers : FkhServiceBase
     public async Task<object> ListContainersAsync(Dictionary<string, string> parameters)
     {
         var githubUsername = parameters["_githubUsername"];
-        var isAdmin = parameters.TryGetValue("_isAdmin", out var adminValue)
-            && string.Equals(adminValue, "true", StringComparison.OrdinalIgnoreCase);
-        var showAll = isAdmin
-            && parameters.TryGetValue("all", out var allValue)
+        var showAll = parameters.TryGetValue("all", out var allValue)
             && string.Equals(allValue, "true", StringComparison.OrdinalIgnoreCase);
 
         // Resolve the client's timezone for displaying local times
@@ -23,12 +20,6 @@ public class FkhListContainers : FkhServiceBase
         {
             try { clientTz = TimeZoneInfo.FindSystemTimeZoneById(tzId); }
             catch (TimeZoneNotFoundException) { /* fall back to UTC */ }
-        }
-
-        if (!isAdmin && parameters.TryGetValue("all", out var reqAll)
-            && string.Equals(reqAll, "true", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new UnauthorizedAccessException("The --all option is restricted to administrators.");
         }
 
         var client = await GetKubernetesClientAsync();
@@ -51,7 +42,11 @@ public class FkhListContainers : FkhServiceBase
         var usernamePrefix = $"{githubUsername.ToLowerInvariant()}-";
 
         var filtered = showAll
-            ? deployments
+            ? deployments.Where(d =>
+            {
+                var appLabel = d.Spec.Template.Metadata.Labels.TryGetValue("app", out var app) ? app : "";
+                return CanAccessContainer(parameters, appLabel);
+            }).ToList()
             : deployments.Where(d =>
             {
                 var appLabel = d.Spec.Template.Metadata.Labels.TryGetValue("app", out var app) ? app : "";

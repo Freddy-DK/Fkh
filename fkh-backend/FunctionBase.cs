@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Azure.ResourceManager.ContainerService;
 using Fkh.Models;
 using Fkh.Services;
@@ -21,8 +22,43 @@ public abstract class FunctionBase
     private static readonly List<OrgTeamConfig> AdminOrgTeams = LoadOrgTeamConfig("ADMIN_ORG_TEAMS", required: false);
     private static readonly List<OrgTeamConfig> SupportOrgTeams = LoadOrgTeamConfig("SUPPORT_ORG_TEAMS", required: false);
     private static readonly List<AllowedUserConfig> AllowedUsers = LoadAllowedUsers();
+    private static readonly List<string> CommonContainers = LoadStringList("COMMON_CONTAINERS");
     private static readonly GitHubOidcService OidcService = new();
     private static readonly AdoOidcService AdoOidcService = new();
+
+    public static bool CanAccessContainer(string username, bool isAdmin, string appName)
+    {
+        if (isAdmin)
+            return true;
+
+        var normalizedAppName = NormalizeContainerName(appName);
+        var usernamePrefix = $"{NormalizeContainerName(username)}-";
+        if (normalizedAppName.StartsWith(usernamePrefix, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return IsCommonContainer(appName);
+    }
+
+    public static bool IsCommonContainer(string appName)
+    {
+        var normalizedAppName = NormalizeContainerName(appName);
+        return CommonContainers.Any(pattern => MatchesCommonContainerPattern(normalizedAppName, pattern));
+    }
+
+    private static bool MatchesCommonContainerPattern(string appName, string pattern)
+    {
+        if (string.IsNullOrWhiteSpace(pattern))
+            return false;
+
+        var normalizedPattern = NormalizeContainerName(pattern);
+        var regexPattern = "^" + Regex.Escape(normalizedPattern)
+            .Replace("\\*", ".*")
+            .Replace("\\?", ".") + "$";
+        return Regex.IsMatch(appName, regexPattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    private static string NormalizeContainerName(string value)
+        => value.Replace('.', '-').Replace('_', '-').ToLowerInvariant();
 
     // ── Brute-force protection ───────────────────────────────────────────────────
     private const int MaxFailedAttempts = 3;
@@ -599,7 +635,7 @@ public abstract class FunctionBase
                     $"Azure DevOps OIDC token invalid or service connection not authorized. {adoError}"));
             }
 
-            username = subject.Replace("sc://", "").Replace('/', '-');
+            username = GetAdoOidcUsername(subject);
             isAdmin = true;
             logger.LogInformation("Received {Operation} request from ADO OIDC caller: {Subject} (username: {Username}, admin: true)", operationName, subject, username);
         }
@@ -657,6 +693,17 @@ public abstract class FunctionBase
             ClientIp = clientIp,
             Function = function
         }, null);
+    }
+
+    private static string GetAdoOidcUsername(string subject)
+    {
+        var subjectPath = subject.StartsWith("sc://", StringComparison.OrdinalIgnoreCase)
+            ? subject["sc://".Length..]
+            : subject;
+        var parts = subjectPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 2
+            ? string.Join('-', parts.Take(2))
+            : subjectPath.Replace('/', '-');
     }
 
     private static async Task<(bool Authorized, bool IsAdmin, bool IsSupport)> AuthorizeGitHubUserAsync(
@@ -1029,6 +1076,17 @@ public abstract class FunctionBase
         }
 
         return users;
+    }
+
+    private static List<string> LoadStringList(string envVarName)
+    {
+        var raw = Environment.GetEnvironmentVariable(envVarName);
+        if (string.IsNullOrWhiteSpace(raw))
+            return [];
+
+        return JsonSerializer.Deserialize<List<string>>(raw,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+            ?? throw new InvalidOperationException($"Failed to parse {envVarName}.");
     }
 
     private sealed class ParameterValidationResult

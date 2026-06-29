@@ -8,7 +8,6 @@ interface ContainerListProps {
   loading: boolean;
   error: string | null;
   showAll: boolean;
-  canShowAll: boolean;
   onToggleAll: () => void;
   onRefresh: () => void;
   onStart: (name: string) => void;
@@ -21,7 +20,6 @@ export function ContainerList({
   loading,
   error,
   showAll,
-  canShowAll,
   onToggleAll,
   onRefresh,
   onStart,
@@ -33,8 +31,8 @@ export function ContainerList({
       <div className="list-toolbar">
         <h2>Containers</h2>
         <div className="toolbar-actions">
-          <label className={`toggle-all ${canShowAll ? '' : 'toggle-all-disabled'}`}>
-            <input type="checkbox" checked={showAll} onChange={onToggleAll} disabled={!canShowAll} />
+          <label className="toggle-all">
+            <input type="checkbox" checked={showAll} onChange={onToggleAll} />
             Show all
           </label>
           <button className="btn btn-sm btn-secondary" onClick={onRefresh} disabled={loading}>

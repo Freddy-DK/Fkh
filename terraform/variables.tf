@@ -218,6 +218,12 @@ variable "allowed_users" {
   }
 }
 
+variable "common_containers" {
+  description = "Container app name wildcard patterns that every member can access. Supports * for any number of characters and ? for one character."
+  type        = list(string)
+  default     = []
+}
+
 variable "allowed_oidc_repos" {
   description = "List of GitHub repositories (org/repo) allowed to authenticate via OIDC from GitHub Actions workflows."
   type        = list(string)

@@ -306,41 +306,39 @@ public abstract class FkhServiceBase
         return appName.TrimEnd('-');
     }
 
+    protected static bool CanAccessContainer(Dictionary<string, string> parameters, string appName)
+    {
+        var githubUsername = parameters["_githubUsername"];
+        var isAdmin = parameters.TryGetValue("_isAdmin", out var adminVal)
+            && string.Equals(adminVal, "true", StringComparison.OrdinalIgnoreCase);
+        return global::Fkh.FunctionBase.CanAccessContainer(githubUsername, isAdmin, appName);
+    }
+
+    protected static bool IsCommonContainer(string appName)
+        => global::Fkh.FunctionBase.IsCommonContainer(appName);
+
     /// <summary>
     /// Resolves the app label from parameters.
-    /// If name already starts with the user's own "username-" prefix (or, for admins,
-    /// any prefix containing a '-'), it is used as the full app name.
-    /// Otherwise the username is prefixed automatically.
-    /// Non-admins are rejected if the name contains a hyphen but does not match their own prefix.
+    /// If the supplied name is accessible as a full app name, it is used as-is.
+    /// Otherwise short names are resolved by prepending the authenticated GitHub username.
     /// </summary>
     protected static string ResolveAppName(Dictionary<string, string> parameters)
     {
         var name = parameters["name"];
         var githubUsername = parameters["_githubUsername"];
-        var isAdmin = parameters.TryGetValue("_isAdmin", out var adminVal)
-            && string.Equals(adminVal, "true", StringComparison.OrdinalIgnoreCase);
+        var appName = SanitizeAppName(name);
+        var ownPrefix = $"{SanitizeAppName(githubUsername)}-";
 
-        var ownPrefix = $"{githubUsername}-";
-
-        if (name.StartsWith(ownPrefix, StringComparison.OrdinalIgnoreCase))
+        if (appName.StartsWith(ownPrefix, StringComparison.OrdinalIgnoreCase)
+            || name.Contains('-')
+            || IsCommonContainer(appName))
         {
-            // User supplied their own full app label — use as-is
-            return SanitizeAppName(name);
-        }
-
-        if (name.Contains('-'))
-        {
-            // Name references someone else's container
-            if (!isAdmin)
-            {
+            if (!CanAccessContainer(parameters, appName))
                 throw new UnauthorizedAccessException(
-                    "You do not have permission to manage containers that belong to other users.");
-            }
-            // Admin can reference any container
-            return SanitizeAppName(name);
+                    "You do not have permission to manage this container.");
+            return appName;
         }
 
-        // Short name without prefix — prepend the user's username
         return SanitizeAppName($"{githubUsername}-{name}");
     }
 

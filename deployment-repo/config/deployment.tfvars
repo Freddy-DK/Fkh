@@ -159,6 +159,15 @@ allowed_users = [
   # { user = "support-agent", role = "support" }
 ]
 
+# Common containers — container app name patterns that all members can access.
+# Patterns are matched against the full Kubernetes app name after Fkh sanitizes names
+# to lowercase and converts dots/underscores to dashes.
+# Use * to match any number of characters and ? to match exactly one character.
+# Examples: "common-*" matches common-bc and common-demo; "demo-??" matches demo-us.
+common_containers = [
+  # "common-*"
+]
+
 # Repositories — GitHub repos allowed to call Fkh via OIDC from GitHub Actions
 # Please note that the AUTH token provided must be the ID token
 allowed_oidc_repos = [

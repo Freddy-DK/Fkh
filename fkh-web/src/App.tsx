@@ -95,14 +95,10 @@ export function App() {
       .then(currentUser => {
         if (cancelled) return;
         setIsAdmin(currentUser.isAdmin);
-        if (!currentUser.isAdmin) {
-          setShowAll(false);
-        }
       })
       .catch(e => {
         if (cancelled) return;
         setIsAdmin(false);
-        setShowAll(false);
         if (e instanceof AuthorizationError) {
           handleAuthFailure(e);
         } else {
@@ -144,8 +140,6 @@ export function App() {
   }, [token, backendUrl, fetchContainers]);
 
   const handleToggleAll = useCallback(() => {
-    if (!isAdmin) return;
-
     setShowAll(prev => {
       const next = !prev;
       // Refetch with new setting
@@ -165,7 +159,7 @@ export function App() {
       }
       return next;
     });
-  }, [token, backendUrl, handleAuthFailure, isAdmin]);
+  }, [token, backendUrl, handleAuthFailure]);
 
   const handleStart = useCallback(async (name: string) => {
     if (!token || !backendUrl) return;
@@ -281,7 +275,6 @@ export function App() {
           loading={containersLoading}
           error={containersError}
           showAll={showAll}
-          canShowAll={isAdmin}
           onToggleAll={handleToggleAll}
           onRefresh={() => fetchContainers()}
           onStart={handleStart}

@@ -273,7 +273,7 @@ public static class FunctionCatalog
         new FunctionDefinition
         {
             Name = "ListContainers",
-            Description = "Lists containers. By default lists only your own containers. Set 'all' to 'true' to list all containers.",
+            Description = "Lists containers. By default lists only your own containers. Set 'all' to 'true' to include common containers for members, or all containers for admins.",
             Route = "ListContainers",
             Parameters = new List<FunctionParameterDefinition>
             {
@@ -281,7 +281,7 @@ public static class FunctionCatalog
                 {
                     Name = "all",
                     Type = "boolean",
-                    Description = "List all containers instead of only your own.",
+                    Description = "Include common containers for members, or all containers for admins.",
                     Required = false,
                     DefaultValue = null
                 },

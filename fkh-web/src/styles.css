@@ -205,11 +205,6 @@ code {
   cursor: pointer;
 }
 .toggle-all input { accent-color: var(--accent); }
-.toggle-all-disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.toggle-all-disabled input { cursor: not-allowed; }
 
 .empty-state {
   text-align: center;
