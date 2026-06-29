@@ -204,7 +204,7 @@ export function App() {
     const deploymentLabel = orgName ? `the Fkh deployment for ${orgName}` : 'the Fkh deployment';
     if (!window.confirm(`Are you sure you want to stop ${deploymentLabel}? All containers will become unavailable.`)) return;
     try {
-      await invokeFunction(backendUrl, token, 'StopFkh', {});
+      await invokeFunction(backendUrl, token, 'StopFkh', { confirm: 'true' });
       setSystemStopped(true);
     } catch (e) {
       if (e instanceof SystemStoppedError) {
