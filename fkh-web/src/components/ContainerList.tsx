@@ -48,10 +48,10 @@ export function ContainerList({
       )}
 
       <div className="container-cards">
-        {containers.map(c => (
+        {containers.map(container => (
           <ContainerCard
-            key={c.appLabel}
-            container={c}
+            key={container.appLabel}
+            container={container}
             showLabel={showAll}
             onStart={onStart}
             onStop={onStop}
@@ -83,6 +83,7 @@ function ContainerCard({
   const isStarting = statusLower.startsWith('starting') || statusLower.startsWith('pending') || statusLower.startsWith('initializing');
   const isFailed = statusLower.startsWith('failed');
   const busy = actionInProgress === container.appLabel;
+  const displayName = showLabel ? container.appLabel : container.name;
 
   const statusClass = isRunning ? 'status-running'
     : isStopped ? 'status-stopped'
@@ -95,7 +96,7 @@ function ContainerCard({
       <div className="card-header" onClick={() => setExpanded(!expanded)}>
         <div className="card-title-row">
           <span className={`status-dot ${statusClass}`} />
-          <span className="card-name">{showLabel ? container.appLabel : container.name}</span>
+          <ContainerName name={displayName} />
           <span className="card-status">{container.status}</span>
           <ContainerMenu
             container={container}
@@ -131,6 +132,38 @@ function ContainerCard({
       )}
     </div>
   );
+}
+
+function ContainerName({ name }: { name: string }) {
+  const splitName = splitContainerName(name);
+
+  return (
+    <span className="card-name" title={name} aria-label={name}>
+      <span className="card-name-full" aria-hidden="true">{name}</span>
+      <span className="card-name-compact" aria-hidden="true">
+        <span className="card-name-prefix">{splitName.prefix}</span>
+        {splitName.suffix && (
+          <>
+            <span className="card-name-separator">-</span>
+            <span className="card-name-suffix">{splitName.suffix}</span>
+          </>
+        )}
+      </span>
+    </span>
+  );
+}
+
+function splitContainerName(name: string): { prefix: string; suffix: string } {
+  const splitIndex = name.lastIndexOf('-');
+
+  if (splitIndex <= 0 || splitIndex >= name.length - 1) {
+    return { prefix: name, suffix: '' };
+  }
+
+  return {
+    prefix: name.slice(0, splitIndex),
+    suffix: name.slice(splitIndex + 1),
+  };
 }
 
 function ContainerMenu({

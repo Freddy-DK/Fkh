@@ -258,8 +258,27 @@ code {
   flex: 1;
   min-width: 0;
   overflow: hidden;
+}
+.card-name-full {
+  display: block;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.card-name-compact {
+  display: none;
+  align-items: baseline;
+  min-width: 0;
+  white-space: nowrap;
+}
+.card-name-prefix {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.card-name-separator,
+.card-name-suffix {
+  flex-shrink: 0;
 }
 .card-status {
   font-size: 0.8rem;
@@ -421,6 +440,9 @@ code {
   .header-avatar { width: 24px; height: 24px; }
   .app-main { padding: 12px; }
   .card-header { padding: 10px 12px; }
+  .card-title-row { gap: 8px; }
+  .card-name-full { display: none; }
+  .card-name-compact { display: flex; }
   .card-details { padding: 0 12px 10px; }
   .login-card { padding: 24px 16px; }
   .device-code { font-size: 1.5rem; padding: 8px 16px; }
