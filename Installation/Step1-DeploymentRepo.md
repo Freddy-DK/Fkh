@@ -67,7 +67,7 @@ You can create the private deployment repository with the Fkh CLI or manually in
 Run the following command:
 
 ```pwsh
-fkh createdeploymentrepo --deploymentRepo org/repo [--fkhRepo fkhForkOrg/fkhForkRepo]
+fkh createdeploymentrepo --deploymentRepo org/repo [--fkhRepo fkhForkOrg/fkhForkRepo[@version]]
 ```
 
 Replace `org/repo` with the GitHub organization and repository name for the private deployment repository.
@@ -77,9 +77,10 @@ Examples:
 ```pwsh
 fkh createdeploymentrepo --deploymentRepo my-company/fkh-deploy-contoso
 fkh createdeploymentrepo --deploymentRepo my-company/fkh-deploy-contoso --fkhRepo my-company/Fkh
+fkh createdeploymentrepo --deploymentRepo my-company/fkh-deploy-contoso --fkhRepo my-company/Fkh@dev
 ```
 
-Use `--fkhRepo` only when you created your own Fkh fork. If you omit it, the CLI uses the default Fkh source repository.
+Use `--fkhRepo` only when you created your own Fkh fork or want to pin a specific Fkh version. The optional `@version` suffix can be a tag, branch, `latest`, or `preview`; when omitted, the CLI uses `latest` from the selected source repository.
 
 ### Option B — Create the repository manually in GitHub
 

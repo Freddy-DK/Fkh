@@ -72,13 +72,14 @@ fkh updatedeploymentrepo --deploymentRepo my-company/fkh-deploy-contoso --fkhRep
 fkh updatedeploymentrepo --deploymentRepo my-company/fkh-deploy-contoso --fkhRepo my-company/Fkh@dev
 ```
 
-The optional `@branch` suffix controls which branch of the Fkh fork is used for fetching templates and for the reusable workflow references in the caller workflows. When omitted it defaults to `main`. This is useful for testing Fkh changes on a feature branch without affecting other deployments.
+The optional `@version` suffix controls which tag, branch, or alias (`latest` or `preview`) of the Fkh fork is used for fetching templates and for the reusable workflow references in the caller workflows. When omitted it defaults to `latest`. This is useful for testing Fkh changes on a feature branch without affecting other deployments.
 
 What it does:
 
 - Clones the deployment repository to a temporary folder.
 - Fetches every file from the `deployment-repo/` folder of the Fkh repository (or fork) at the specified branch and writes it into the deployment repo, creating any missing folders.
 - In `.yml` files, rewrites the default `Freddy-DK/Fkh` reference and `@main` branch reference to your `--fkhRepo` value when one is provided.
+- Updates the **Update Fkh Version** workflow defaults to the same Fkh fork and version you provided, so the next workflow run starts with the last selected source.
 - **Never overwrites `config/deployment.tfvars`** — your environment-specific configuration is preserved.
 - Commits and pushes the changes using your `gh` user identity.
 
