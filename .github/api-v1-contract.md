@@ -220,6 +220,8 @@ These are not returned by the catalog but can be invoked directly by clients tha
 |---|---|---|---|
 | GetDatabaseUploadSas | `POST /GetDatabaseUploadSas` | **Yes** | Returns a SAS URL for uploading database backups |
 | GetDatabaseDownloadSas | `POST /GetDatabaseDownloadSas` | No | Returns a read-only SAS URL for downloading database backups |
+| GetFileUploadSas | `POST /GetFileUploadSas` | **Yes** | Returns a SAS URL for uploading versioned files |
+| GetFileDownloadSas | `POST /GetFileDownloadSas` | No | Returns a read-only SAS URL for downloading versioned files |
 | Status | `POST /Status` | **Yes** | Returns full system status (nodes, containers, SQL, storage, quotas, security) |
 
 ---
@@ -435,6 +437,14 @@ No parameters.
 | `containerName` | string | no | `databases` | Blob container name |
 
 ### GetDatabaseDownloadSas (hidden)
+
+No parameters.
+
+### GetFileUploadSas (hidden)
+
+No parameters.
+
+### GetFileDownloadSas (hidden)
 
 No parameters.
 

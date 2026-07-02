@@ -3,17 +3,15 @@ using Microsoft.Extensions.Logging;
 
 namespace Fkh.Services;
 
-public class FkhGetDatabaseDownloadSas : FkhBlobContainerSasService
+public class FkhGetFileDownloadSas : FkhBlobContainerSasService
 {
-    public FkhGetDatabaseDownloadSas(ILogger<FkhGetDatabaseDownloadSas> logger) : base(logger) { }
+    public FkhGetFileDownloadSas(ILogger<FkhGetFileDownloadSas> logger) : base(logger) { }
 
     public async Task<object> GetDownloadSasAsync(Dictionary<string, string> parameters)
-    {
-        return await GetContainerSasAsync(
-            "databases",
+        => await GetContainerSasAsync(
+            "files",
             BlobSasPermissions.Read | BlobSasPermissions.List,
             createIfNotExists: false,
-            accessDescription: "read-only download",
+            accessDescription: "file read-only download",
             parameters);
-    }
 }

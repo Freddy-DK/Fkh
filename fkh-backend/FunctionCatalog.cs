@@ -595,6 +595,23 @@ public static class FunctionCatalog
         },
         new FunctionDefinition
         {
+            Name = "GetFileUploadSas",
+            Description = "Returns a SAS URL for uploading versioned files to blob storage. Admin only.",
+            Route = "GetFileUploadSas",
+            Hidden = true,
+            AdminOnly = true,
+            Parameters = new List<FunctionParameterDefinition>()
+        },
+        new FunctionDefinition
+        {
+            Name = "GetFileDownloadSas",
+            Description = "Returns a read-only SAS URL for downloading versioned files from blob storage.",
+            Route = "GetFileDownloadSas",
+            Hidden = true,
+            Parameters = new List<FunctionParameterDefinition>()
+        },
+        new FunctionDefinition
+        {
             Name = "ListPrepulled",
             Description = "Lists images currently configured for pre-pulling on Windows nodes. Admin only.",
             Route = "ListPrepulled",
