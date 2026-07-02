@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ContainerInfo } from '../types';
 import { DropdownMenu } from './DropdownMenu';
 import type { MenuEntry } from './DropdownMenu';
+
+const AUTO_REFRESH_INTERVAL_MS = 60_000;
 
 interface ContainerListProps {
   containers: ContainerInfo[];
@@ -28,6 +30,28 @@ export function ContainerList({
   onStop,
   actionInProgress,
 }: ContainerListProps) {
+  const loadingRef = useRef(loading);
+  const [refreshTimerReset, setRefreshTimerReset] = useState(0);
+
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
+
+  const refreshAndResetTimer = useCallback(() => {
+    setRefreshTimerReset(value => value + 1);
+    onRefresh();
+  }, [onRefresh]);
+
+  useEffect(() => {
+    const refreshTimer = window.setInterval(() => {
+      if (!loadingRef.current) {
+        refreshAndResetTimer();
+      }
+    }, AUTO_REFRESH_INTERVAL_MS);
+
+    return () => window.clearInterval(refreshTimer);
+  }, [refreshAndResetTimer, refreshTimerReset]);
+
   return (
     <div className="container-list">
       <div className="list-toolbar">
@@ -37,7 +61,7 @@ export function ContainerList({
             <input type="checkbox" checked={showAll} onChange={onToggleAll} disabled={!canShowAll} />
             Show all
           </label>
-          <button className="btn btn-sm btn-secondary" onClick={onRefresh} disabled={loading}>
+          <button className="btn btn-sm btn-secondary" onClick={refreshAndResetTimer} disabled={loading}>
             {loading ? 'Loading...' : 'Refresh'}
           </button>
         </div>

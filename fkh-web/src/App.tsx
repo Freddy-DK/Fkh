@@ -136,6 +136,10 @@ export function App() {
     }
   }, [token, backendUrl, showAll]);
 
+  const handleRefreshContainers = useCallback(() => {
+    fetchContainers();
+  }, [fetchContainers]);
+
   // Load containers once authenticated
   useEffect(() => {
     if (token && backendUrl) {
@@ -283,7 +287,7 @@ export function App() {
           showAll={showAll}
           canShowAll={isAdmin}
           onToggleAll={handleToggleAll}
-          onRefresh={() => fetchContainers()}
+          onRefresh={handleRefreshContainers}
           onStart={handleStart}
           onStop={handleStop}
           actionInProgress={actionInProgress}
