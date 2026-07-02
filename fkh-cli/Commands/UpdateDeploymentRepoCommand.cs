@@ -25,6 +25,7 @@ sealed class UpdateDeploymentRepoCommand : ClientCommand
 
         var fkhFullRepo = parameters.TryGetValue("fkhRepo", out var fr) && !string.IsNullOrWhiteSpace(fr) ? fr : "Freddy-DK/Fkh";
         var (fkhRepo, fkhBranch) = ParseFkhRepo(fkhFullRepo);
+        var requestedFkhBranch = fkhBranch;
 
         // Verify gh is authenticated
         var (ghExit, _, ghErr) = RunProcess("gh", ["auth", "status"]);
@@ -71,14 +72,14 @@ sealed class UpdateDeploymentRepoCommand : ClientCommand
             Console.WriteLine();
         }
 
-        return await UpdateDeploymentRepoAsync(deployFullRepo, fkhRepo, fkhBranch, "Update deployment repo from Fkh template");
+        return await UpdateDeploymentRepoAsync(deployFullRepo, fkhRepo, fkhBranch, "Update deployment repo from Fkh template", fkhVersionDefault: requestedFkhBranch);
     }
 
     /// <summary>
     /// Clones the deployment repo, fetches template files from the Fkh fork,
     /// writes them (skipping deployment.tfvars), commits and pushes.
     /// </summary>
-    internal static async Task<int> UpdateDeploymentRepoAsync(string deployFullRepo, string fkhRepo, string fkhBranch, string commitMessage, bool quiet = false)
+    internal static async Task<int> UpdateDeploymentRepoAsync(string deployFullRepo, string fkhRepo, string fkhBranch, string commitMessage, bool quiet = false, string? fkhVersionDefault = null)
     {
         // 1. Verify gh is authenticated
         var (ghExit, _, ghErr) = RunProcess("gh", ["auth", "status"]);
@@ -154,6 +155,8 @@ sealed class UpdateDeploymentRepoCommand : ClientCommand
                     content = content.Replace("Freddy-DK/Fkh", fkhRepo);
                     content = content.Replace("@main", $"@{fkhBranch}");
                     content = content.Replace("fkh-ref: main", $"fkh-ref: {fkhBranch}");
+                    if (relativePath.Equals(".github/workflows/UpdateFkhVersion.yml", StringComparison.OrdinalIgnoreCase))
+                        content = SetWorkflowInputDefault(content, "fkh-version", fkhVersionDefault ?? fkhBranch);
                 }
 
                 var targetPath = Path.Combine(tempDir, relativePath.Replace('/', Path.DirectorySeparatorChar));
@@ -238,6 +241,47 @@ sealed class UpdateDeploymentRepoCommand : ClientCommand
             return (fkhFullRepo[..atIndex], fkhFullRepo[(atIndex + 1)..]);
         return (fkhFullRepo, "latest");
     }
+
+    static string SetWorkflowInputDefault(string content, string inputName, string defaultValue)
+    {
+        var lines = content.Replace("\r\n", "\n").Split('\n');
+        var inInput = false;
+        var inputIndent = -1;
+
+        for (int i = 0; i < lines.Length; i++)
+        {
+            var line = lines[i];
+            var trimmed = line.TrimStart();
+            var indent = line.Length - trimmed.Length;
+
+            if (trimmed.StartsWith($"{inputName}:", StringComparison.Ordinal))
+            {
+                inInput = true;
+                inputIndent = indent;
+                continue;
+            }
+
+            if (!inInput)
+                continue;
+
+            if (trimmed.Length > 0 && indent <= inputIndent)
+            {
+                inInput = false;
+                continue;
+            }
+
+            if (trimmed.StartsWith("default:", StringComparison.Ordinal))
+            {
+                var prefix = line[..indent];
+                lines[i] = $"{prefix}default: {ToSingleQuotedYaml(defaultValue)}";
+                break;
+            }
+        }
+
+        return string.Join('\n', lines);
+    }
+
+    static string ToSingleQuotedYaml(string value) => $"'{value.Replace("'", "''")}'";
 
     /// <summary>
     /// Resolves "latest" and "preview" branch aliases to actual release tags from the given repo.

@@ -24,6 +24,7 @@ sealed class CreateDeploymentRepoCommand : ClientCommand
 
         var fkhFullRepo = parameters.TryGetValue("fkhRepo", out var fr) && !string.IsNullOrWhiteSpace(fr) ? fr : "Freddy-DK/Fkh";
         var (fkhRepo, fkhBranch) = UpdateDeploymentRepoCommand.ParseFkhRepo(fkhFullRepo);
+        var requestedFkhBranch = fkhBranch;
 
         // 1. Verify gh is authenticated
         var (ghExit, _, ghErr) = RunProcess("gh", ["auth", "status"]);
@@ -74,7 +75,7 @@ sealed class CreateDeploymentRepoCommand : ClientCommand
         Console.WriteLine($"  Created: {createOut.Trim()}");
 
         // 5. Populate the repo with template files
-        var result = await UpdateDeploymentRepoCommand.UpdateDeploymentRepoAsync(deployFullRepo, fkhRepo, fkhBranch, "Initial deployment repo from Fkh template", quiet: true);
+        var result = await UpdateDeploymentRepoCommand.UpdateDeploymentRepoAsync(deployFullRepo, fkhRepo, fkhBranch, "Initial deployment repo from Fkh template", quiet: true, fkhVersionDefault: requestedFkhBranch);
         if (result != 0)
             return result;
 
