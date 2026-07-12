@@ -38,6 +38,10 @@ var host = new HostBuilder()
         services.AddSingleton<FkhGetDatabaseDownloadSas>();
         services.AddSingleton<FkhGetFileUploadSas>();
         services.AddSingleton<FkhGetFileDownloadSas>();
+        services.AddSingleton<FkhRemoveDatabase>();
+        services.AddSingleton<FkhRemoveFile>();
+        services.AddSingleton<FkhListDatabases>();
+        services.AddSingleton<FkhListFiles>();
         services.AddSingleton<FkhBackupTenantDatabase>();
         services.AddSingleton<FkhRestoreTenantDatabase>();
         services.AddSingleton<FkhDismountTenant>();

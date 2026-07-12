@@ -612,6 +612,76 @@ public static class FunctionCatalog
         },
         new FunctionDefinition
         {
+            Name = "RemoveDatabase",
+            Description = "Removes an uploaded database backup version from blob storage and updates the version manifest (all.json). Specify the database as 'name/version', or just 'name' to remove the latest version (latest is then repointed to the previous version). Admin only.",
+            Route = "RemoveDatabase",
+            AdminOnly = true,
+            RequiresConfirmation = true,
+            Parameters = new List<FunctionParameterDefinition>
+            {
+                new()
+                {
+                    Name = "database",
+                    Type = "string",
+                    Description = "Database to remove as 'name/version', or just 'name' to remove the latest version.",
+                    Required = true
+                }
+            }
+        },
+        new FunctionDefinition
+        {
+            Name = "RemoveFile",
+            Description = "Removes an uploaded file version from blob storage and updates the version manifest (all.json). Specify the file as 'name/version', or just 'name' to remove the latest version (latest is then repointed to the previous version). Admin only.",
+            Route = "RemoveFile",
+            AdminOnly = true,
+            RequiresConfirmation = true,
+            Parameters = new List<FunctionParameterDefinition>
+            {
+                new()
+                {
+                    Name = "file",
+                    Type = "string",
+                    Description = "File to remove as 'name/version', or just 'name' to remove the latest version.",
+                    Required = true
+                }
+            }
+        },
+        new FunctionDefinition
+        {
+            Name = "ListDatabases",
+            Description = "Lists uploaded database backups in blob storage. Filter with 'name/version' where both sides support '*' (any characters) and '?' (single character) wildcards: '*/latest' (default) lists the latest version of every database, '*/*' lists all versions of all databases, 'name/*' lists all versions of a database, and patterns like 'My*/latest' or 'cronus??/*' are supported. 'version' also accepts the keyword 'latest'.",
+            Route = "ListDatabases",
+            Parameters = new List<FunctionParameterDefinition>
+            {
+                new()
+                {
+                    Name = "database",
+                    Type = "string",
+                    Description = "Filter as 'name/version'. Both sides support '*' and '?' wildcards; 'version' also accepts 'latest'. Defaults to '*/latest'.",
+                    Required = false,
+                    DefaultValue = "*/latest"
+                }
+            }
+        },
+        new FunctionDefinition
+        {
+            Name = "ListFiles",
+            Description = "Lists uploaded files in blob storage. Filter with 'name/version' where both sides support '*' (any characters) and '?' (single character) wildcards: '*/latest' (default) lists the latest version of every file, '*/*' lists all versions of all files, 'name/*' lists all versions of a file, and patterns like 'My*/latest' or 'log??/*' are supported. 'version' also accepts the keyword 'latest'.",
+            Route = "ListFiles",
+            Parameters = new List<FunctionParameterDefinition>
+            {
+                new()
+                {
+                    Name = "file",
+                    Type = "string",
+                    Description = "Filter as 'name/version'. Both sides support '*' and '?' wildcards; 'version' also accepts 'latest'. Defaults to '*/latest'.",
+                    Required = false,
+                    DefaultValue = "*/latest"
+                }
+            }
+        },
+        new FunctionDefinition
+        {
             Name = "ListPrepulled",
             Description = "Lists images currently configured for pre-pulling on Windows nodes. Admin only.",
             Route = "ListPrepulled",
