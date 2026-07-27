@@ -321,6 +321,18 @@ jobs:
             --from-literal=deployment-repo="${{ github.repository }}" \
             --dry-run=client -o yaml | kubectl apply -f -
 
+      # ── Refresh Azure login before ACR push ───────────────────────────────
+      # The initial OIDC login happened many long-running steps ago. The GitHub
+      # OIDC client assertion has a short lifetime (~5 min), so re-authenticate
+      # here to obtain a fresh token for `az acr login` (avoids AADSTS700024 /
+      # ACR UNAUTHORIZED).
+      - name: Azure CLI login (OIDC) – refresh for ACR
+        uses: azure/login@v3
+        with:
+          client-id: ${{ steps.parse.outputs.deploy_client_id }}
+          tenant-id: ${{ steps.parse.outputs.tenant_id }}
+          subscription-id: ${{ steps.parse.outputs.subscription_id }}
+
       # ── Build and push MSSQL FTS image to ACR ─────────────────────────────
       - name: Build and push MSSQL FTS image
         shell: pwsh
@@ -343,6 +355,17 @@ jobs:
             terraform apply -var-file $varFile -auto-approve
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+
+      # ── Refresh Azure login before function publish ───────────────────────
+      # Same reason as the ACR refresh above: the long-running Terraform apply
+      # can outlive the short-lived OIDC assertion, so re-authenticate before
+      # `func azure functionapp publish` (avoids AADSTS700024 / auth failures).
+      - name: Azure CLI login (OIDC) – refresh for function publish
+        uses: azure/login@v3
+        with:
+          client-id: ${{ steps.parse.outputs.deploy_client_id }}
+          tenant-id: ${{ steps.parse.outputs.tenant_id }}
+          subscription-id: ${{ steps.parse.outputs.subscription_id }}
 
       # ── Publish function code ─────────────────────────────────────────────
       - name: Publish Azure Function
