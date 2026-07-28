@@ -67,7 +67,7 @@ resource "azurerm_federated_identity_credential" "github_actions" {
   user_assigned_identity_id = azurerm_user_assigned_identity.github_actions.id
   audience                  = ["api://AzureADTokenExchange"]
   issuer                    = "https://token.actions.githubusercontent.com"
-  subject                   = var.create_images_subject != "" ? var.create_images_subject : "repo:${var.create_images_repo}:ref:refs/heads/main"
+  subject                   = "repo:${var.create_images_repo}:ref:refs/heads/main"
 }
 
 # Additional federated credential using GitHub's immutable ID-form subject.
