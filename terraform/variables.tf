@@ -289,12 +289,6 @@ variable "create_images_repo" {
   default     = ""
 }
 
-variable "create_images_subject" {
-  description = "Optional full override for the CreateImages federated credential subject. Use this when the GitHub org and/or repository has been renamed: GitHub then emits the immutable ID-form subject (e.g. 'repo:Org@123/Repo@456:ref:refs/heads/main') instead of the name-based one. Leave empty to derive the subject from create_images_repo."
-  type        = string
-  default     = ""
-}
-
 variable "create_images_owner_id" {
   description = "Numeric GitHub organization/owner ID of the deployment repository. Automatically set from the github.repository_owner_id context when deploying via GitHub Actions. When set together with create_images_repo_id, an additional federated credential using the immutable ID-form subject ('repo:Org@ownerId/Repo@repoId:ref:refs/heads/main') is created so OIDC keeps working after an org/repo rename."
   type        = string
