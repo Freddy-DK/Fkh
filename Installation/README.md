@@ -48,7 +48,7 @@ They are responsible for:
 - Creating GitHub teams for Fkh access control.
 - Configuring GitHub Actions secrets and variables in the deployment repository.
 
-> **Why a private deployment repository is used:** the deployment repository contains organization-specific configuration such as Azure subscription IDs, GitHub organization names, team names, and GitHub Secrets. It calls reusable workflows from the public `Freddy-DK/Fkh` repository; you do not need to fork Fkh just to deploy it.
+> **Why a private deployment repository is used:** the deployment repository contains organization-specific configuration such as Azure subscription IDs, GitHub organization names, team names, and GitHub Secrets. It uses composite actions and reusable workflows from the public `Freddy-DK/Fkh` repository; you do not need to fork Fkh just to deploy it.
 
 > **Optional fork:** fork Fkh only if you want to modify or contribute to the Fkh source code. You can then point the deployment workflows at your fork while testing changes.
 

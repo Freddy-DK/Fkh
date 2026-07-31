@@ -238,6 +238,24 @@ Paste the full contents of the `.pem` file, including these lines:
 
 ---
 
+## 5.4 — Optional: use self-hosted runners for image builds
+
+The `CreateImages` workflow in the deployment repository runs on `windows-2022` GitHub-hosted runners by default. Image builds are resource-intensive (downloading BC artifacts, running Docker, pushing to ACR) and can benefit significantly from self-hosted Windows runners with faster local storage and network.
+
+To use a self-hosted runner, open `.github/workflows/CreateImages.yml` in the deployment repository and change both `runs-on` values:
+
+```yaml
+jobs:
+  prepare:
+    runs-on: self-hosted   # or a label like [self-hosted, windows, X64]
+  build:
+    runs-on: self-hosted
+```
+
+The runner must have Docker, PowerShell, and the Azure CLI available. The `BcContainerHelper` module is installed automatically during the workflow run.
+
+---
+
 ## Step summary
 
 After completing this step, your deployment repository should contain:

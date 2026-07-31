@@ -1,0 +1,81 @@
+name: 'Create Image - Build'
+description: 'Downloads BC artifacts, uploads database backups to Azure Storage, and builds/pushes a Docker image to ACR'
+inputs:
+  artifactUrl:
+    description: 'The BC artifact URL to build an image from'
+    required: true
+  acrLoginServer:
+    description: 'ACR login server'
+    required: true
+  dbsStorageAccount:
+    description: 'Azure Storage account name for database backups'
+    required: true
+  azureClientId:
+    description: 'Azure client ID for OIDC login'
+    required: true
+  azureTenantId:
+    description: 'Azure tenant ID for OIDC login'
+    required: true
+  azureSubscriptionId:
+    description: 'Azure subscription ID for OIDC login'
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - name: Download artifacts
+      shell: pwsh
+      env:
+        ARTIFACT_URL: ${{ inputs.artifactUrl }}
+      run: . '${{ github.action_path }}/scripts/Download-Artifacts.ps1'
+
+    - name: Azure login (OIDC)
+      uses: azure/login@v3
+      with:
+        client-id: ${{ inputs.azureClientId }}
+        tenant-id: ${{ inputs.azureTenantId }}
+        subscription-id: ${{ inputs.azureSubscriptionId }}
+
+    - name: Upload database backup
+      shell: pwsh
+      env:
+        DBS_STORAGE_ACCOUNT: ${{ inputs.dbsStorageAccount }}
+      run: . '${{ github.action_path }}/scripts/Upload-DatabaseBackup.ps1'
+
+    - name: Azure login (OIDC)
+      uses: azure/login@v3
+      with:
+        client-id: ${{ inputs.azureClientId }}
+        tenant-id: ${{ inputs.azureTenantId }}
+        subscription-id: ${{ inputs.azureSubscriptionId }}
+
+    - name: Upload app and tenant database backups
+      shell: pwsh
+      env:
+        DBS_STORAGE_ACCOUNT: ${{ inputs.dbsStorageAccount }}
+      run: . '${{ github.action_path }}/scripts/Upload-AppTenantBackups.ps1'
+
+    - name: Azure login (OIDC)
+      uses: azure/login@v3
+      with:
+        client-id: ${{ inputs.azureClientId }}
+        tenant-id: ${{ inputs.azureTenantId }}
+        subscription-id: ${{ inputs.azureSubscriptionId }}
+
+    - name: Login to ACR
+      shell: pwsh
+      env:
+        ACR_LOGIN_SERVER: ${{ inputs.acrLoginServer }}
+      run: . '${{ github.action_path }}/scripts/Login-Acr.ps1'
+
+    - name: Build and push image
+      shell: pwsh
+      env:
+        ACR_LOGIN_SERVER: ${{ inputs.acrLoginServer }}
+      run: . '${{ github.action_path }}/scripts/Build-AndPushImage.ps1'
+
+    - name: Cleanup
+      if: always()
+      shell: pwsh
+      env:
+        ACR_LOGIN_SERVER: ${{ inputs.acrLoginServer }}
+      run: . '${{ github.action_path }}/scripts/Cleanup.ps1'

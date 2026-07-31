@@ -1,0 +1,26 @@
+name: 'Create Image - Prepare'
+description: 'Resolves BC artifact URL shorthands and builds a job matrix for the Create Image workflow'
+inputs:
+  artifactUrls:
+    description: 'Comma-separated list of artifact URLs or shorthands'
+    required: true
+outputs:
+  matrix:
+    description: 'JSON matrix object for use with strategy.matrix'
+    value: ${{ steps.set-matrix.outputs.matrix }}
+runs:
+  using: "composite"
+  steps:
+    - name: Resolve artifact URLs
+      id: resolve
+      shell: pwsh
+      env:
+        ARTIFACT_URLS: ${{ inputs.artifactUrls }}
+      run: . '${{ github.action_path }}/scripts/Resolve-ArtifactUrls.ps1'
+
+    - name: Build matrix from input
+      id: set-matrix
+      shell: pwsh
+      env:
+        ARTIFACT_URLS: ${{ steps.resolve.outputs.resolved }}
+      run: . '${{ github.action_path }}/scripts/Build-Matrix.ps1'
