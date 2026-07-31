@@ -903,7 +903,9 @@ async function showContainerLog(appLabel: string, containerName: string): Promis
     },
     async () => {
       try {
-        const body: FunctionInvokeRequest = { parameters: { name: containerName } };
+        // Send the full app label so the backend resolves the exact container,
+        // even when the short name contains hyphens.
+        const body: FunctionInvokeRequest = { parameters: { name: appLabel } };
         const response = await fetch(`${baseUrl}/GetContainerLog`, {
           method: 'POST',
           headers: {
@@ -959,7 +961,9 @@ async function downloadContainerEventLog(appLabel: string, containerName: string
     },
     async () => {
       try {
-        const body: FunctionInvokeRequest = { parameters: { name: containerName } };
+        // Send the full app label so the backend resolves the exact container,
+        // even when the short name contains hyphens.
+        const body: FunctionInvokeRequest = { parameters: { name: appLabel } };
         const response = await fetch(`${baseUrl}/GetContainerEventLog`, {
           method: 'POST',
           headers: {

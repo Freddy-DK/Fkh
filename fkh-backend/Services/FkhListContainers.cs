@@ -143,9 +143,11 @@ public class FkhListContainers : FkhServiceBase
                 }
             }
 
-            // Extract container name by stripping the "username-" prefix (split on last '-' since usernames can contain hyphens)
-            var podName = appLabel.Contains('-') && appLabel.LastIndexOf('-') < appLabel.Length - 1
-                ? appLabel[(appLabel.LastIndexOf('-') + 1)..] : appLabel;
+            // Extract container name by stripping the owner's "username-" prefix.
+            // Only the leading username segment is removed — the rest of the name is
+            // preserved verbatim, so containers with hyphens (e.g. "myapp-dk") keep them.
+            var podName = appLabel.StartsWith(usernamePrefix, StringComparison.OrdinalIgnoreCase)
+                ? appLabel[usernamePrefix.Length..] : appLabel;
 
             // Auto-stop time
             string? autoStopStr = null;
