@@ -322,10 +322,13 @@ jobs:
             --dry-run=client -o yaml | kubectl apply -f -
 
       # ── Refresh Azure login before ACR push ───────────────────────────────
-      # The initial OIDC login happened many long-running steps ago. The GitHub
-      # OIDC client assertion has a short lifetime (~5 min), so re-authenticate
-      # here to obtain a fresh token for `az acr login` (avoids AADSTS700024 /
-      # ACR UNAUTHORIZED).
+      # The Azure CLI logged in many steps ago. Under federated OIDC the CLI
+      # caches an Azure AD access token (~60–90 min) but receives NO refresh
+      # token, so once that token expires it cannot renew silently — it retries
+      # the original GitHub OIDC assertion, which is already expired, surfacing
+      # as AADSTS700024 / ACR UNAUTHORIZED. Re-authenticate here to mint a fresh
+      # token for `az acr login`. (Terraform is unaffected: with ARM_USE_OIDC it
+      # performs its own OIDC exchange, independent of the CLI session.)
       - name: Azure CLI login (OIDC) – refresh for ACR
         uses: azure/login@v3
         with:
@@ -358,8 +361,9 @@ jobs:
 
       # ── Refresh Azure login before function publish ───────────────────────
       # Same reason as the ACR refresh above: the long-running Terraform apply
-      # can outlive the short-lived OIDC assertion, so re-authenticate before
-      # `func azure functionapp publish` (avoids AADSTS700024 / auth failures).
+      # can outlive the CLI's cached Azure AD access token, and federated OIDC
+      # provides no refresh token, so re-authenticate before
+      # `func azure functionapp publish` to avoid AADSTS700024 / auth failures.
       - name: Azure CLI login (OIDC) – refresh for function publish
         uses: azure/login@v3
         with:
