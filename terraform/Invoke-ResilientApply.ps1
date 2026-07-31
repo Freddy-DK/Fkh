@@ -52,7 +52,7 @@ function Get-ResourceConflicts([string]$Output) {
     # ── Pattern 1: General "already exists" ──────────────────────────────────
     # Error: A resource with the ID "/subscriptions/.../..." already exists - to be managed via Terraform ...
     #   with azurerm_xxx.yyy,
-    $alreadyExistsPattern = '(?s)A resource with the ID "([^"]+)" already exists.*?with\s+([^\s,]+)'
+    $alreadyExistsPattern = '(?s)[Aa] resource with the ID "([^"]+)" already exists.*?with\s+([^\s,]+)'
     $matches1 = [regex]::Matches($Output, $alreadyExistsPattern)
     foreach ($m in $matches1) {
         $conflicts += @{
