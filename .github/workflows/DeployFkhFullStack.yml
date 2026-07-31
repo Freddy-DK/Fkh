@@ -350,7 +350,13 @@ jobs:
       # ── Stamp version into AKS ───────────────────────────────────────────
       - name: Set fkh-version ConfigMap
         run: |
-          kubectl create namespace app --dry-run=client -o yaml | kubectl apply -f -
+          NAMESPACE="$(terraform output -raw namespace)"
+
+          if ! kubectl get namespace "$NAMESPACE" >/dev/null; then
+            echo "::error::Namespace '$NAMESPACE' not found (Terraform apply likely failed)."
+            exit 1
+          fi
+
           kubectl create configmap fkh-version \
             --namespace app \
             --from-literal=version="${{ inputs.fkh-ref }}" \
