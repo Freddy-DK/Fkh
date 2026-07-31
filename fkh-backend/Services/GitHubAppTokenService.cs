@@ -86,7 +86,7 @@ public class GitHubAppTokenService
             request.Headers.UserAgent.Add(new ProductInfoHeaderValue("FKH", "1.0"));
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
 
-            var response = await _http.SendAsync(request);
+            using var response = await _http.SendAsync(request);
             if (!response.IsSuccessStatusCode)
             {
                 var body = await response.Content.ReadAsStringAsync();
@@ -97,7 +97,16 @@ public class GitHubAppTokenService
                 continue;
             }
 
-            var doc = await response.Content.ReadFromJsonAsync<JsonElement>();
+            JsonElement doc;
+            try
+            {
+                doc = await response.Content.ReadFromJsonAsync<JsonElement>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse createImages workflow runs response from {Url}. Continuing with dispatch.", url);
+                continue;
+            }
             if (doc.TryGetProperty("workflow_runs", out var runs) && runs.ValueKind == JsonValueKind.Array)
             {
                 foreach (var run in runs.EnumerateArray())
