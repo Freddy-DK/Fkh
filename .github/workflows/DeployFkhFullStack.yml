@@ -312,17 +312,6 @@ jobs:
           AKS_NAME="fkh-${{ steps.parse.outputs.deployment_name }}-aks"
           az aks get-credentials --resource-group "$AKS_RG" --name "$AKS_NAME" --overwrite-existing
 
-      # ── Stamp version into AKS ───────────────────────────────────────────
-      - name: Set fkh-version ConfigMap
-        run: |
-          kubectl create namespace app --dry-run=client -o yaml | kubectl apply -f -
-          kubectl create configmap fkh-version \
-            --namespace app \
-            --from-literal=version="${{ inputs.fkh-ref }}" \
-            --from-literal=deployed-at="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --from-literal=deployment-repo="${{ github.repository }}" \
-            --dry-run=client -o yaml | kubectl apply -f -
-
       # ── Refresh Azure login before ACR push ───────────────────────────────
       # The initial OIDC login happened many long-running steps ago. The GitHub
       # OIDC client assertion has a short lifetime (~5 min), so re-authenticate
@@ -358,6 +347,23 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
+      # ── Stamp version into AKS ───────────────────────────────────────────
+      - name: Set fkh-version ConfigMap
+        run: |
+          NAMESPACE="$(terraform output -raw namespace)"
+
+          if ! kubectl get namespace "$NAMESPACE" >/dev/null; then
+            echo "::error::Namespace '$NAMESPACE' not found (Terraform apply likely failed)."
+            exit 1
+          fi
+
+          kubectl create configmap fkh-version \
+            --namespace app \
+            --from-literal=version="${{ inputs.fkh-ref }}" \
+            --from-literal=deployed-at="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --from-literal=deployment-repo="${{ github.repository }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+            
       # ── Refresh Azure login before function publish ───────────────────────
       # Same reason as the ACR refresh above: the long-running Terraform apply
       # can outlive the short-lived OIDC assertion, so re-authenticate before

@@ -12,6 +12,7 @@
   Handles:
   - "A resource with the ID ... already exists" (general AzureRM pattern)
   - "RoleAssignmentExists" (role-assignment-specific 409)
+  - Kubernetes namespace "already exists" (created outside Terraform, e.g. by kubectl)
 
 .PARAMETER VarFile
   Path to the .tfvars file passed to terraform apply.
@@ -51,7 +52,7 @@ function Get-ResourceConflicts([string]$Output) {
     # ── Pattern 1: General "already exists" ──────────────────────────────────
     # Error: A resource with the ID "/subscriptions/.../..." already exists - to be managed via Terraform ...
     #   with azurerm_xxx.yyy,
-    $alreadyExistsPattern = '(?s)A resource with the ID "([^"]+)" already exists.*?with\s+([^\s,]+)'
+    $alreadyExistsPattern = '(?s)[Aa] resource with the ID "([^"]+)" already exists.*?with\s+([^\s,]+)'
     $matches1 = [regex]::Matches($Output, $alreadyExistsPattern)
     foreach ($m in $matches1) {
         $conflicts += @{
@@ -78,6 +79,22 @@ function Get-ResourceConflicts([string]$Output) {
         }
     }
 
+    # ── Pattern 3: Kubernetes namespace already exists ────────────────────
+    # Error: namespaces "app" already exists
+    #   with kubernetes_namespace.workload,
+    # The kubernetes provider import ID for a namespace is simply its name.
+    $k8sNsPattern = '(?s)namespaces "([^"]+)" already exists.*?with\s+(kubernetes_namespace\.[^\s,]+)'
+    $matches3 = [regex]::Matches($Output, $k8sNsPattern)
+    foreach ($m in $matches3) {
+        $addr = $m.Groups[2].Value
+        if ($conflicts | Where-Object { $_.ResourceAddress -eq $addr }) { continue }
+        $conflicts += @{
+            ResourceAddress = $addr
+            ImportId        = $m.Groups[1].Value
+            Source          = 'k8s-namespace'
+        }
+    }
+
     return $conflicts
 }
 
@@ -85,6 +102,11 @@ function Resolve-ImportId([hashtable]$Conflict) {
     if ($Conflict.Source -eq 'already-exists') {
         # Full Azure resource ID is already in the error message
         return $Conflict.AzureId
+    }
+
+    if ($Conflict.Source -eq 'k8s-namespace') {
+        # Kubernetes provider import ID for a namespace is just its name
+        return $Conflict.ImportId
     }
 
     if ($Conflict.Source -eq 'role-assignment') {
