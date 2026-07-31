@@ -104,6 +104,11 @@ function Resolve-ImportId([hashtable]$Conflict) {
         return $Conflict.AzureId
     }
 
+    if ($Conflict.Source -eq 'k8s-namespace') {
+        # Kubernetes provider import ID for a namespace is just its name
+        return $Conflict.ImportId
+    }
+
     if ($Conflict.Source -eq 'role-assignment') {
         # Look up full ID via Azure CLI using the role assignment GUID
         $guid = $Conflict.RoleGuid
