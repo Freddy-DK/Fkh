@@ -15,6 +15,8 @@
 
 name: Create Images
 
+run-name: Create Images - ${{ inputs.artifactUrls }}
+
 on:
   workflow_dispatch:
     inputs:

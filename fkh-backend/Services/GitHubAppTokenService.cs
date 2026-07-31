@@ -38,6 +38,14 @@ public class GitHubAppTokenService
     {
         var token = await GetInstallationTokenAsync();
 
+        if (await IsCreateImagesWorkflowRunningAsync(token, artifactUrl))
+        {
+            _logger.LogInformation(
+                "A createImages workflow for {ArtifactUrl} is already queued or in progress. Skipping dispatch.",
+                artifactUrl);
+            return;
+        }
+
         var url = $"https://api.github.com/repos/{_repoOwner}/{_repoName}/actions/workflows/CreateImages.yml/dispatches";
 
         using var request = new HttpRequestMessage(HttpMethod.Post, url);
@@ -60,6 +68,62 @@ public class GitHubAppTokenService
         }
 
         _logger.LogInformation("Triggered createImages workflow for {ArtifactUrl}", artifactUrl);
+    }
+
+    /// <summary>
+    /// Returns true when a Create Images workflow run for the given artifact URL is already
+    /// queued or in progress, so we avoid dispatching a duplicate run on every retry.
+    /// The workflow sets its run name to include the artifact URL (see run-name in CreateImages.yml).
+    /// </summary>
+    private async Task<bool> IsCreateImagesWorkflowRunningAsync(string token, string artifactUrl)
+    {
+        foreach (var status in new[] { "queued", "in_progress" })
+        {
+            var url = $"https://api.github.com/repos/{_repoOwner}/{_repoName}/actions/workflows/CreateImages.yml/runs?status={status}&per_page=100";
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            request.Headers.UserAgent.Add(new ProductInfoHeaderValue("FKH", "1.0"));
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+
+            using var response = await _http.SendAsync(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                // Don't block the dispatch if the check itself fails; just log and continue.
+                _logger.LogWarning(
+                    "Failed to list createImages workflow runs (HTTP {Status} from {Url}): {Body}",
+                    (int)response.StatusCode, url, body);
+                continue;
+            }
+
+            JsonElement doc;
+            try
+            {
+                doc = await response.Content.ReadFromJsonAsync<JsonElement>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse createImages workflow runs response from {Url}. Continuing with dispatch.", url);
+                continue;
+            }
+            if (doc.TryGetProperty("workflow_runs", out var runs) && runs.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var run in runs.EnumerateArray())
+                {
+                    var name = run.TryGetProperty("name", out var n) ? n.GetString() : null;
+                    var displayTitle = run.TryGetProperty("display_title", out var d) ? d.GetString() : null;
+
+                    if ((name?.Contains(artifactUrl, StringComparison.OrdinalIgnoreCase) ?? false)
+                        || (displayTitle?.Contains(artifactUrl, StringComparison.OrdinalIgnoreCase) ?? false))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     private async Task<string> GetInstallationTokenAsync()

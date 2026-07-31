@@ -34,6 +34,68 @@ export async function updateLaunchJsonAfterCreate(
   }
 }
 
+/**
+ * After a container is removed, remove the matching launch configuration(s)
+ * from launch.json files in app folders.
+ *
+ * The launch configuration created by `updateLaunchJsonAfterCreate` is named
+ * after the container's deployment name (e.g. `myapp-deployment`), while the
+ * container's app label is the base name (e.g. `myapp`). Both variants are
+ * matched to be robust.
+ *
+ * The setting `fkh.CreateContainer.updateLaunchJson` controls the search scope,
+ * mirroring the create behavior.
+ */
+export async function removeLaunchJsonAfterRemove(
+  containerName: string,
+  project?: string,
+): Promise<void> {
+  const mode = vscode.workspace.getConfiguration('fkh').get<string>('CreateContainer.updateLaunchJson', 'project');
+  if (mode === 'none') { return; }
+
+  const repoRoot = getGitRootUri();
+  if (!repoRoot) { return; }
+
+  const searchRoot = mode === 'project' && project && project !== '.'
+    ? vscode.Uri.joinPath(repoRoot, project)
+    : repoRoot;
+
+  const appFolders = await findAppFolders(searchRoot);
+  if (appFolders.length === 0) { return; }
+
+  const names = new Set([containerName, `${containerName}-deployment`]);
+  for (const appFolder of appFolders) {
+    await removeLaunchConfiguration(appFolder, names);
+  }
+}
+
+async function removeLaunchConfiguration(appFolder: vscode.Uri, names: Set<string>): Promise<void> {
+  const launchUri = vscode.Uri.joinPath(appFolder, '.vscode', 'launch.json');
+
+  let launchJson: { version: string; configurations: Record<string, unknown>[] };
+
+  try {
+    const content = await vscode.workspace.fs.readFile(launchUri);
+    const text = new TextDecoder().decode(content);
+    launchJson = JSON.parse(stripJsonComments(text));
+  } catch {
+    // File doesn't exist or is not parseable — nothing to clean up
+    return;
+  }
+
+  if (!Array.isArray(launchJson.configurations)) { return; }
+
+  const filtered = launchJson.configurations.filter(
+    (c) => !(typeof c === 'object' && c !== null && names.has((c as Record<string, unknown>)['name'] as string)),
+  );
+
+  if (filtered.length === launchJson.configurations.length) { return; }
+
+  launchJson.configurations = filtered;
+  const output = JSON.stringify(launchJson, null, 4) + '\n';
+  await vscode.workspace.fs.writeFile(launchUri, new TextEncoder().encode(output));
+}
+
 async function findAppFolders(root: vscode.Uri): Promise<vscode.Uri[]> {
   const result: vscode.Uri[] = [];
   await walkForAppJson(root, result);

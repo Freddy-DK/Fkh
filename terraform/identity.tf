@@ -70,6 +70,18 @@ resource "azurerm_federated_identity_credential" "github_actions" {
   subject                   = "repo:${var.create_images_repo}:ref:refs/heads/main"
 }
 
+# Additional federated credential using GitHub's immutable ID-form subject.
+# Created only when the numeric IDs are supplied (they are auto-provided by the github.repository_owner_id / github.repository_id context in the deploy workflow).
+resource "azurerm_federated_identity_credential" "github_actions_idform" {
+  count = var.create_images_owner_id != "" && var.create_images_repo_id != "" ? 1 : 0
+
+  name                      = "github-actions-createimages-id"
+  user_assigned_identity_id = azurerm_user_assigned_identity.github_actions.id
+  audience                  = ["api://AzureADTokenExchange"]
+  issuer                    = "https://token.actions.githubusercontent.com"
+  subject                   = "repo:${split("/", var.create_images_repo)[0]}@${var.create_images_owner_id}/${split("/", var.create_images_repo)[1]}@${var.create_images_repo_id}:ref:refs/heads/main"
+}
+
 resource "azurerm_role_assignment" "github_actions_acr_push" {
   scope                = azurerm_container_registry.this.id
   role_definition_name = "AcrPush"

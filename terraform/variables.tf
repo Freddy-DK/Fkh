@@ -289,6 +289,18 @@ variable "create_images_repo" {
   default     = ""
 }
 
+variable "create_images_owner_id" {
+  description = "Numeric GitHub organization/owner ID of the deployment repository. Automatically set from the github.repository_owner_id context when deploying via GitHub Actions. When set together with create_images_repo_id, an additional federated credential using the immutable ID-form subject ('repo:Org@ownerId/Repo@repoId:ref:refs/heads/main') is created so OIDC keeps working after an org/repo rename."
+  type        = string
+  default     = ""
+}
+
+variable "create_images_repo_id" {
+  description = "Numeric GitHub repository ID of the deployment repository. Automatically set from the github.repository_id context when deploying via GitHub Actions. See create_images_owner_id."
+  type        = string
+  default     = ""
+}
+
 variable "contact_email_for_letsencrypt" {
   description = "Contact email for Let's Encrypt certificate generation."
   type        = string
