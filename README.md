@@ -106,9 +106,3 @@ A GitHub-authenticated Azure Function acts as the provisioning gate; Terraform m
 ## Installation
 
 Follow description under [Installation/README.md](Installation/README.md)
-
-## Sponsors
-
-Thanks to these sponsors for sponsoring the project:
-
-# [![VCIO Global](Sponsors/VCIOGLOBAL.jpg)](https://vcioglobal.com)
