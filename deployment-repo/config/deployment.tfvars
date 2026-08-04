@@ -212,7 +212,7 @@ github_app_installation_id = "123456789"  # paste your Installation ID here
 # Default user settings (deployed to settings/usersettings.json in storage)
 # _members = defaults for all users, _admins = defaults for admin users
 #
-# Optional: auto start/stop the cluster on a schedule to save cost. Add an "Uptime"
+# Optional: auto start/stop the cluster on a schedule to save cost. Add a "Uptime"
 # block under "_admins" (runtime 'setsettings' changes override this default and are
 # preserved across 'terraform apply'):
 #   "_admins": {
