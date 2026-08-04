@@ -198,7 +198,7 @@ This controls default limits, such as how many simultaneous containers a user ca
 
 #### Optional: scheduled cluster uptime
 
-To automatically stop the cluster outside working hours (and start it again) to save cost, add an `Uptime` block under `_admins`:
+To automatically stop the cluster outside working hours (and start it again) to save cost, add a `Uptime` block under `_admins`:
 
 ```hcl
 default_user_settings = <<-EOT
