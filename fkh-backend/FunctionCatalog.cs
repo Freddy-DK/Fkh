@@ -856,17 +856,7 @@ public static class FunctionCatalog
             Route = "StopFkh",
             AdminOnly = true,
             RequiresConfirmation = true,
-            Parameters = new List<FunctionParameterDefinition>
-            {
-                new()
-                {
-                    Name = "confirm",
-                    Type = "boolean",
-                    Description = "Confirm that you want to stop the cluster.",
-                    Required = false,
-                    DefaultValue = null
-                }
-            }
+            Parameters = new List<FunctionParameterDefinition>()
         },
         new FunctionDefinition
         {

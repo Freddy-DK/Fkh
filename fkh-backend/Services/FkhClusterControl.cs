@@ -16,12 +16,6 @@ public class FkhClusterControl : FkhServiceBase
 
     public async Task<object> StopClusterAsync(Dictionary<string, string> parameters)
     {
-        if (!parameters.TryGetValue("confirm", out var confirm) ||
-            !string.Equals(confirm, "true", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException("This will stop the entire AKS cluster and all containers. Pass --confirm to proceed.");
-        }
-
         var cluster = GetClusterResource();
         var data = (await cluster.GetAsync()).Value.Data;
         var powerState = data.PowerStateCode?.ToString();

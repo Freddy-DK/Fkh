@@ -477,6 +477,10 @@ static ParsedArgs ParseArgs(string[] args, FunctionCatalogResponse catalog)
         function.Parameters.Where(p => string.Equals(p.Type, "boolean", StringComparison.OrdinalIgnoreCase)).Select(p => p.Name),
         StringComparer.OrdinalIgnoreCase);
 
+    // 'confirm' is a reserved boolean flag that skips the interactive prompt for confirmation-required functions.
+    if (function.RequiresConfirmation)
+        booleanParams.Add("confirm");
+
     for (var i = 1; i < args.Length; i++)
     {
         var arg = args[i];
@@ -628,6 +632,11 @@ static async Task<FunctionCatalogResponse> GetFunctionCatalogAsync(string? backe
 static void EnsureRequiredParameters(FunctionDefinition function, Dictionary<string, string> parameters)
 {
     var knownNames = function.Parameters.Select(p => p.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    // 'confirm' is a reserved flag that skips the interactive prompt for confirmation-required functions.
+    if (function.RequiresConfirmation)
+        knownNames.Add("confirm");
+
     var unknown = parameters.Keys.Where(k => !knownNames.Contains(k)).ToList();
     if (unknown.Count > 0)
     {
@@ -737,6 +746,13 @@ static void PrintCommandUsage(FunctionDefinition function)
         }
     }
     Console.WriteLine();
+    if (function.RequiresConfirmation &&
+        !function.Parameters.Any(p => string.Equals(p.Name, "confirm", StringComparison.OrdinalIgnoreCase)))
+    {
+        Console.WriteLine("Confirmation:");
+        Console.WriteLine("    --confirm           Skip the interactive confirmation prompt");
+        Console.WriteLine();
+    }
     PrintCommonOptions();
 }
 
