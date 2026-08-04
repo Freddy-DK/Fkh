@@ -196,6 +196,38 @@ EOT
 
 This controls default limits, such as how many simultaneous containers a user can have. Adjust the numbers to match your environment.
 
+#### Optional: scheduled cluster uptime
+
+To automatically stop the cluster outside working hours (and start it again) to save cost, add an `Uptime` block under `_admins`:
+
+```hcl
+default_user_settings = <<-EOT
+  {
+    "_members": { "MaxContainers": 3 },
+    "_admins": {
+      "MaxContainers": 10,
+      "Uptime": {
+        "TimeZone": "Central European Standard Time",
+        "Weekdays": {
+          "Mon": "06:00-18:00",
+          "Tue": "06:00-18:00",
+          "Wed": "06:00-18:00",
+          "Thu": "06:00-18:00",
+          "Fri": "06:00-18:00"
+        },
+        "UseNagerHolidays": { "Countries": "DK,DE,DE-BE", "Types": "Public,Bank" }
+      }
+    }
+  }
+EOT
+```
+
+- `Weekdays` — uptime window per day as `HH:mm-HH:mm`; a missing day means the cluster stays off all day.
+- `TimeZone` — a Windows time-zone id; times above are wall-clock in this zone. Defaults to UTC if omitted.
+- `UseNagerHolidays` — a day is excluded (cluster off) only when **every** listed country has a matching holiday, so if anyone is working the cluster stays on. `Types` supports `*` wildcards; subdivision codes like `DE-BE` are supported. Uses the public [Nager.Date](https://date.nager.at) API.
+
+This is the **default** schedule. Admins can override it at runtime with `setsettings --username _admins --property Uptime ...`, and one-off overrides are available via `startfkh --autostop <time>` and `stopfkh --autostart <time>`. Runtime values are preserved across `terraform apply`.
+
 ---
 
 ## 5.2 — Commit deployment.tfvars

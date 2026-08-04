@@ -20,6 +20,7 @@ public class FkhUserSettings : FkhServiceBase
     private static readonly Dictionary<string, SettingDefinition> KnownSettings = new(StringComparer.OrdinalIgnoreCase)
     {
         ["MaxContainers"] = new SettingDefinition { DefaultValue = JsonValue.Create(3), AdminOnly = true },
+        ["Uptime"] = new SettingDefinition { DefaultValue = null, AdminOnly = true },
     };
 
     public FkhUserSettings(ILogger<FkhUserSettings> logger) : base(logger) { }
@@ -278,6 +279,25 @@ public class FkhUserSettings : FkhServiceBase
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Gets a global (cluster-wide) setting stored under '_admins'. The runtime value in
+    /// usersettings.json overrides the Terraform-seeded default in defaultusersettings.json.
+    /// </summary>
+    public async Task<JsonNode?> GetGlobalSettingAsync(string property)
+    {
+        var allSettings = await ReadAllSettingsAsync();
+        var defaultSettings = await ReadDefaultSettingsAsync();
+
+        JsonNode? result = null;
+        if (defaultSettings.TryGetPropertyValue(AdminsKey, out var defNode) && defNode is JsonObject defObj
+            && defObj.TryGetPropertyValue(property, out var defValue))
+            result = defValue?.DeepClone();
+        if (allSettings.TryGetPropertyValue(AdminsKey, out var rtNode) && rtNode is JsonObject rtObj
+            && rtObj.TryGetPropertyValue(property, out var rtValue))
+            result = rtValue?.DeepClone();
+        return result;
     }
 
     private async Task<JsonObject> ReadAllSettingsAsync()

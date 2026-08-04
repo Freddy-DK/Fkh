@@ -211,6 +211,18 @@ github_app_installation_id = "123456789"  # paste your Installation ID here
 #                                                      |___/     
 # Default user settings (deployed to settings/usersettings.json in storage)
 # _members = defaults for all users, _admins = defaults for admin users
+#
+# Optional: auto start/stop the cluster on a schedule to save cost. Add an "Uptime"
+# block under "_admins" (runtime 'setsettings' changes override this default and are
+# preserved across 'terraform apply'):
+#   "_admins": {
+#     "MaxContainers": 10,
+#     "Uptime": {
+#       "TimeZone": "Central European Standard Time",
+#       "Weekdays": { "Mon": "06:00-18:00", "Tue": "06:00-18:00", "Wed": "06:00-18:00", "Thu": "06:00-18:00", "Fri": "06:00-18:00" },
+#       "UseNagerHolidays": { "Countries": "DK", "Types": "Public,Bank" }
+#     }
+#   }
 default_user_settings = <<-EOT
   {
     "_members": {

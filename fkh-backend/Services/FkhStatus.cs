@@ -15,7 +15,12 @@ namespace Fkh.Services;
 
 public class FkhStatus : FkhServiceBase
 {
-    public FkhStatus(ILogger<FkhStatus> logger) : base(logger) { }
+    private readonly FkhClusterSchedule _clusterSchedule;
+
+    public FkhStatus(ILogger<FkhStatus> logger, FkhClusterSchedule clusterSchedule) : base(logger)
+    {
+        _clusterSchedule = clusterSchedule;
+    }
 
     public async Task<object> GetStatusAsync(Dictionary<string, string> parameters)
     {
@@ -50,6 +55,8 @@ public class FkhStatus : FkhServiceBase
             FkhFork = Environment.GetEnvironmentVariable("FKH_FORK"),
         };
 
+        var clusterSchedule = await GetClusterScheduleAsync();
+
         if (!string.Equals(powerState, "Running", StringComparison.OrdinalIgnoreCase))
         {
             return new
@@ -58,6 +65,7 @@ public class FkhStatus : FkhServiceBase
                 ClusterPowerState = powerState ?? "Unknown",
                 BackendUrl = $"https://{Environment.GetEnvironmentVariable("WEBSITE_HOSTNAME")}/api",
                 Version = versionInfo,
+                ClusterSchedule = clusterSchedule,
                 Message = string.Equals(powerState, "Stopped", StringComparison.OrdinalIgnoreCase)
                     ? "The cluster is stopped. Use 'fkh startfkh' to start it."
                     : $"The cluster is currently {powerState?.ToLowerInvariant() ?? "unknown"}. Please wait for it to be fully running.",
@@ -78,11 +86,25 @@ public class FkhStatus : FkhServiceBase
             ClusterPowerState = powerState,
             BackendUrl = $"https://{Environment.GetEnvironmentVariable("WEBSITE_HOSTNAME")}/api",
             Version = versionInfo,
+            ClusterSchedule = clusterSchedule,
             Kubernetes = await kubeTask,
             Storage = await storageTask,
             Quota = await quotaTask,
             Security = await securityTask,
         };
+    }
+
+    private async Task<object?> GetClusterScheduleAsync()
+    {
+        try
+        {
+            return await _clusterSchedule.GetSummaryAsync(DateTimeOffset.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to compute cluster schedule summary for status.");
+            return null;
+        }
     }
 
     private async Task<string?> GetClusterPowerStateAsync(Azure.Core.TokenCredential credential)
