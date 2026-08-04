@@ -104,6 +104,7 @@ abstract class VersionedBlobCommand : ClientCommand
         if (!asJson)
             Console.WriteLine($"{Ansi.Cyan}Uploaded:{Ansi.Reset} {blobName}");
 
+        manifest = await DownloadManifestAsync(manifestClient) ?? manifest;
         if (!manifest.Versions.Contains(version, StringComparer.OrdinalIgnoreCase))
             manifest.Versions.Add(version);
         manifest.Versions.Sort(StringComparer.OrdinalIgnoreCase);
