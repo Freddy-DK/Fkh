@@ -868,11 +868,7 @@ public static class FunctionCatalog
                 },
                 new()
                 {
-                    Name = "autostart",
-                    Type = "string",
-                    Description = "When to automatically start the cluster again, overriding the next scheduled start. Use '<n>h' for hours from now (e.g. '8h') or a time of day (e.g. '06:00'). Leave empty to follow the schedule.",
-                    Required = false,
-                    DefaultValue = null
+                    Description = "When to automatically start the cluster again, overriding the next scheduled start. Use '<n>h' for hours from now (e.g. '8h') or a time of day (e.g. '06:00'). Omit to follow the schedule. Note: times are clamped to a minimum of 2h from now.",
                 }
             }
         },
