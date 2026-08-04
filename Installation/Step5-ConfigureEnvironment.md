@@ -226,7 +226,7 @@ EOT
 - `TimeZone` — a Windows time-zone id; times above are wall-clock in this zone. Defaults to UTC if omitted.
 - `UseNagerHolidays` — a day is excluded (cluster off) only when **every** listed country has a matching holiday, so if anyone is working the cluster stays on. `Types` supports `*` wildcards; subdivision codes like `DE-BE` are supported. Uses the public [Nager.Date](https://date.nager.at) API.
 
-This is the **default** schedule. Admins can override it at runtime with `setsettings --username _admins --property Uptime ...`, and one-off overrides are available via `startfkh --autostop <time>` and `stopfkh --autostart <time>`. Runtime values are preserved across `terraform apply`.
+This is the **default** schedule. Admins can override it at runtime with `setsettings --username _admins --property Uptime ...`, and one-off overrides are available via `startfkh --autostop <time>` and `stopfkh --autostart <time>` (values are clamped to a minimum of 2h from now). Runtime values are preserved across `terraform apply`.
 
 ---
 
