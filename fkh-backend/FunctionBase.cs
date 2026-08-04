@@ -240,6 +240,16 @@ public abstract class FunctionBase
 
         // Validate non-file parameters
         var allowedNames = auth.Function.Parameters.Select(p => p.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // Confirmation-required functions must receive confirm=true; 'confirm' is reserved and never reaches the handler.
+        if (auth.Function.RequiresConfirmation)
+        {
+            parameters.TryGetValue("confirm", out var confirmValue);
+            parameters.Remove("confirm");
+            if (!string.Equals(confirmValue, "true", StringComparison.OrdinalIgnoreCase))
+                return Respond(req, HttpStatusCode.BadRequest, $"{auth.Function.Name} requires confirmation. Set confirm=true to proceed (CLI: pass --confirm).");
+        }
+
         var unknown = parameters.Keys.Where(k => !allowedNames.Contains(k)).ToList();
         if (unknown.Count > 0)
             return Respond(req, HttpStatusCode.BadRequest, $"Unknown parameters for {auth.Function.Name}: {string.Join(", ", unknown)}.");
@@ -986,6 +996,18 @@ public abstract class FunctionBase
         var internalParams = incoming.Where(kv => kv.Key.StartsWith('_')).ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
         foreach (var key in internalParams.Keys)
             incoming.Remove(key);
+
+        // 'confirm' is a reserved parameter for confirmation-required functions; validate it here and do not forward it to the handler.
+        if (function.RequiresConfirmation)
+        {
+            incoming.TryGetValue("confirm", out var confirmValue);
+            incoming.Remove("confirm");
+            if (!string.Equals(confirmValue, "true", StringComparison.OrdinalIgnoreCase))
+            {
+                return ParameterValidationResult.Fail(
+                    $"{function.Name} requires confirmation. Pass --confirm to proceed.");
+            }
+        }
 
         var unknown = incoming.Keys.Where(k => !allowedNames.Contains(k)).ToList();
         if (unknown.Count > 0)
