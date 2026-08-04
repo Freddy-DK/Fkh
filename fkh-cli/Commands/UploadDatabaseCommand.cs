@@ -6,7 +6,7 @@ sealed class UploadDatabaseCommand : VersionedBlobCommand
     [
         new() { Name = "bakFile", Type = "file", Description = "Path to the .bak database backup file.", Required = true },
         new() { Name = "backupName", Type = "string", Description = "Backup name (used as the folder name in blob storage).", Required = true },
-        new() { Name = "backupVersion", Type = "string", Description = "Version label for this backup (used as the blob name).", Required = true }
+        new() { Name = "backupVersion", Type = "string", Description = "Version label for this backup (used as the blob name). Defaults to the current UTC time as yyyyMMddHHmm.", Required = false }
     ];
 
     private static readonly UploadSpec Spec = new()

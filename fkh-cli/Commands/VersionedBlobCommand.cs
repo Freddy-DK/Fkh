@@ -43,8 +43,8 @@ abstract class VersionedBlobCommand : ClientCommand
 
         if (!TryGetRequiredParameter(parameters, spec.NameParameterName, out var name))
             return 1;
-        if (!TryGetRequiredParameter(parameters, spec.VersionParameterName, out var version))
-            return 1;
+        if (!parameters.TryGetValue(spec.VersionParameterName, out var version) || string.IsNullOrWhiteSpace(version))
+            version = DateTime.UtcNow.ToString("yyyyMMddHHmm");
         if (!TryGetRequiredParameter(parameters, spec.LocalPathParameterName, out var localPath))
             return 1;
         if (!File.Exists(localPath))
@@ -62,12 +62,22 @@ abstract class VersionedBlobCommand : ClientCommand
         if (sasUrl is null)
             return 1;
 
+        var containerClient = new Azure.Storage.Blobs.BlobContainerClient(new Uri(sasUrl));
+
+        var manifestBlobName = $"{name}/all.json";
+        var manifestClient = containerClient.GetBlobClient(manifestBlobName);
+        var manifest = await DownloadManifestAsync(manifestClient) ?? new VersionedBlobManifest();
+
+        // Reuse the existing version's casing so a re-upload overwrites the same blob instead of creating a case-variant duplicate.
+        var existingVersion = manifest.Versions.FirstOrDefault(v => string.Equals(v, version, StringComparison.OrdinalIgnoreCase));
+        if (existingVersion is not null)
+            version = existingVersion;
+
         var blobName = spec.GetBlobName(name, version);
         var fileSize = new FileInfo(localPath).Length;
         if (!asJson)
             Console.WriteLine($"{Ansi.Dim}Uploading {localPath} ({fileSize / (1024.0 * 1024):N3} Mb) as {blobName}...{Ansi.Reset}");
 
-        var containerClient = new Azure.Storage.Blobs.BlobContainerClient(new Uri(sasUrl));
         var blobClient = containerClient.GetBlobClient(blobName);
 
         await using (var fileStream = File.OpenRead(localPath))
@@ -94,12 +104,10 @@ abstract class VersionedBlobCommand : ClientCommand
         if (!asJson)
             Console.WriteLine($"{Ansi.Cyan}Uploaded:{Ansi.Reset} {blobName}");
 
-        var manifestBlobName = $"{name}/all.json";
-        var manifestClient = containerClient.GetBlobClient(manifestBlobName);
-        var manifest = await DownloadManifestAsync(manifestClient) ?? new VersionedBlobManifest();
-
+        manifest = await DownloadManifestAsync(manifestClient) ?? manifest;
         if (!manifest.Versions.Contains(version, StringComparer.OrdinalIgnoreCase))
             manifest.Versions.Add(version);
+        manifest.Versions.Sort(StringComparer.OrdinalIgnoreCase);
         manifest.Latest = version;
 
         await UploadManifestAsync(manifestClient, manifest);
