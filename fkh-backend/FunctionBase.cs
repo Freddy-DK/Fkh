@@ -247,7 +247,7 @@ public abstract class FunctionBase
             parameters.TryGetValue("confirm", out var confirmValue);
             parameters.Remove("confirm");
             if (!string.Equals(confirmValue, "true", StringComparison.OrdinalIgnoreCase))
-                return Respond(req, HttpStatusCode.BadRequest, $"{auth.Function.Name} requires confirmation. Pass --confirm to proceed.");
+                return Respond(req, HttpStatusCode.BadRequest, $"{auth.Function.Name} requires confirmation. Set confirm=true to proceed (CLI: pass --confirm).");
         }
 
         var unknown = parameters.Keys.Where(k => !allowedNames.Contains(k)).ToList();
