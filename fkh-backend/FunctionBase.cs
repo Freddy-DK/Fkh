@@ -997,7 +997,7 @@ public abstract class FunctionBase
         foreach (var key in internalParams.Keys)
             incoming.Remove(key);
 
-        // 'confirm' is a reserved client-side gate for confirmation-required functions; ignore it unless explicitly declared.
+        // 'confirm' is a reserved parameter for confirmation-required functions; validate it here and do not forward it to the handler.
         if (function.RequiresConfirmation)
         {
             incoming.TryGetValue("confirm", out var confirmValue);
