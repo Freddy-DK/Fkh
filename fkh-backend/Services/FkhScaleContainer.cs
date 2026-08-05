@@ -23,6 +23,8 @@ public class FkhScaleContainer : FkhServiceBase
         var deploymentName = $"{appName}-deployment";
         var client = await GetKubernetesClientAsync();
         await ClearAutoStopAnnotationAsync(client, deploymentName);
+        // Release the LoadBalancer (public IP + LB rules) so a stopped container incurs no cost.
+        await DeleteContainerLoadBalancerServiceAsync(client, appName);
         return result;
     }
 
@@ -70,6 +72,9 @@ public class FkhScaleContainer : FkhServiceBase
         await InjectContainerBlobContainerEnvAsync(client, appName, deploymentName);
 
         var result = await ScaleAsync(parameters, 1);
+
+        // Recreate the LoadBalancer service (deleted on stop). If scaling fails, we avoid allocating a public IP.
+        await EnsureContainerLoadBalancerServiceAsync(client, appName);
 
         parameters.TryGetValue("autostop", out var autoStopValue);
         parameters.TryGetValue("_timezone", out var autoStopTz);
@@ -165,6 +170,7 @@ public class FkhScaleContainer : FkhServiceBase
             deployment.Spec.Replicas = 0;
             await client.ReplaceNamespacedDeploymentAsync(deployment, deploymentName, Namespace);
             await ClearAutoStopAnnotationAsync(client, deploymentName);
+            await DeleteContainerLoadBalancerServiceAsync(client, appName);
             stopped.Add(appName);
         }
 

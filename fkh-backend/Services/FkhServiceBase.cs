@@ -584,6 +584,77 @@ public abstract class FkhServiceBase
         Logger.LogInformation("Cleared auto-stop annotation on '{Deployment}'.", deploymentName);
     }
 
+    /// <summary>
+    /// Creates the per-container LoadBalancer service (public IP + DNS label). Idempotent:
+    /// does nothing if the service already exists. The DNS label equals the app name, so the
+    /// container's FQDN ({appName}.{region}.cloudapp.azure.com) is preserved across recreation
+    /// even though the underlying public IP may change.
+    /// </summary>
+    protected async Task EnsureContainerLoadBalancerServiceAsync(Kubernetes client, string appName)
+    {
+        var serviceName = $"{appName}-service";
+        try
+        {
+            await client.ReadNamespacedServiceAsync(serviceName, Namespace);
+            Logger.LogInformation("LoadBalancer service '{Service}' already exists.", serviceName);
+            return;
+        }
+        catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            // Not found — create it below.
+        }
+
+        var service = new V1Service
+        {
+            Metadata = new V1ObjectMeta
+            {
+                Name = serviceName,
+                NamespaceProperty = Namespace,
+                Annotations = new Dictionary<string, string>
+                {
+                    ["service.beta.kubernetes.io/azure-dns-label-name"] = appName,
+                    ["service.beta.kubernetes.io/azure-load-balancer-health-probe-protocol"] = "tcp",
+                    ["service.beta.kubernetes.io/azure-load-balancer-tcp-idle-timeout"] = "30"
+                }
+            },
+            Spec = new V1ServiceSpec
+            {
+                Type = "LoadBalancer",
+                ExternalTrafficPolicy = "Local",
+                Selector = new Dictionary<string, string> { ["app"] = appName },
+                Ports = new List<V1ServicePort>
+                {
+                    new() { Name = "http", Port = 80, TargetPort = 80 },
+                    new() { Name = "https", Port = 443, TargetPort = 443 },
+                    new() { Name = "soap", Port = 7047, TargetPort = 7047 },
+                    new() { Name = "odata", Port = 7048, TargetPort = 7048 },
+                    new() { Name = "dev", Port = 7049, TargetPort = 7049 },
+                }
+            }
+        };
+
+        await client.CreateNamespacedServiceAsync(service, Namespace);
+        Logger.LogInformation("Created LoadBalancer service '{Service}'.", serviceName);
+    }
+
+    /// <summary>
+    /// Deletes the per-container LoadBalancer service, releasing its public IP and LB rules so a
+    /// stopped container incurs no Load Balancer cost. Ignores NotFound.
+    /// </summary>
+    protected async Task DeleteContainerLoadBalancerServiceAsync(Kubernetes client, string appName)
+    {
+        var serviceName = $"{appName}-service";
+        try
+        {
+            await client.DeleteNamespacedServiceAsync(serviceName, Namespace);
+            Logger.LogInformation("Deleted LoadBalancer service '{Service}'.", serviceName);
+        }
+        catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            // Already gone — nothing to do.
+        }
+    }
+
     protected async Task<string> ResolveUseDatabaseAsync(string useDatabase)
     {
         if (useDatabase.StartsWith("https://", StringComparison.OrdinalIgnoreCase))

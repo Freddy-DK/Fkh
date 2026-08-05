@@ -80,13 +80,6 @@ public class FkhListContainers : FkhServiceBase
         }
         catch { /* metrics API not available */ }
 
-        // Get services to resolve FQDNs
-        var services = await client.ListNamespacedServiceAsync(Namespace);
-        var serviceMap = services.Items
-            .Where(s => s.Spec?.Selector != null && s.Spec.Selector.ContainsKey("app"))
-            .GroupBy(s => s.Spec.Selector["app"])
-            .ToDictionary(g => g.Key, g => g.First());
-
         var containerResults = new List<object>();
 
         foreach (var deployment in filtered)
@@ -173,18 +166,14 @@ public class FkhListContainers : FkhServiceBase
             var databaseNameEnv = envVars?.FirstOrDefault(e => e.Name == "databaseName")?.Value;
             var isMultitenant = string.Equals(envVars?.FirstOrDefault(e => e.Name == "multitenant")?.Value, "Y", StringComparison.OrdinalIgnoreCase);
 
-            // Web client URL from service FQDN
+            // Web client URL — only available while the LoadBalancer service exists (container running).
             string? webClientUrl = null;
-            if (serviceMap.TryGetValue(appLabel, out var svc))
+            if (replicas > 0)
             {
-                var dnsLabel = svc.Metadata.Annotations?.TryGetValue("service.beta.kubernetes.io/azure-dns-label-name", out var label) == true ? label : null;
-                if (dnsLabel != null)
-                {
-                    var fqdn = $"{dnsLabel}.{AksLocation}.cloudapp.azure.com";
-                    webClientUrl = isMultitenant
-                        ? $"https://{fqdn}/BC/?tenant=default"
-                        : $"https://{fqdn}/BC/";
-                }
+                var fqdn = $"{appLabel}.{AksLocation}.cloudapp.azure.com";
+                webClientUrl = isMultitenant
+                    ? $"https://{fqdn}/BC/?tenant=default"
+                    : $"https://{fqdn}/BC/";
             }
             var tenantDatabaseEnv = isMultitenant && !string.IsNullOrWhiteSpace(databaseNameEnv) ? $"{databaseNameEnv}-default" : null;
             var authEnv = envVars?.FirstOrDefault(e => e.Name == "auth")?.Value;
