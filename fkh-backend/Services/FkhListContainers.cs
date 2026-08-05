@@ -166,11 +166,15 @@ public class FkhListContainers : FkhServiceBase
             var databaseNameEnv = envVars?.FirstOrDefault(e => e.Name == "databaseName")?.Value;
             var isMultitenant = string.Equals(envVars?.FirstOrDefault(e => e.Name == "multitenant")?.Value, "Y", StringComparison.OrdinalIgnoreCase);
 
-            // Web client URL — FQDN is deterministic from the app name (== the service's DNS label).
-            var fqdn = $"{appLabel}.{AksLocation}.cloudapp.azure.com";
-            var webClientUrl = isMultitenant
-                ? $"https://{fqdn}/BC/?tenant=default"
-                : $"https://{fqdn}/BC/";
+            // Web client URL — only available while the LoadBalancer service exists (container running).
+            string? webClientUrl = null;
+            if (replicas > 0)
+            {
+                var fqdn = $"{appLabel}.{AksLocation}.cloudapp.azure.com";
+                webClientUrl = isMultitenant
+                    ? $"https://{fqdn}/BC/?tenant=default"
+                    : $"https://{fqdn}/BC/";
+            }
             var tenantDatabaseEnv = isMultitenant && !string.IsNullOrWhiteSpace(databaseNameEnv) ? $"{databaseNameEnv}-default" : null;
             var authEnv = envVars?.FirstOrDefault(e => e.Name == "auth")?.Value;
             var authenticationEmailEnv = envVars?.FirstOrDefault(e => e.Name == "authenticationEMail")?.Value;
