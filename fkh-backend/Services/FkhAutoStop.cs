@@ -41,11 +41,21 @@ public class FkhAutoStop : FkhServiceBase
                 await client.ReplaceNamespacedDeploymentAsync(deployment, deployment.Metadata.Name, Namespace);
 
                 // Release the LoadBalancer (public IP + LB rules) so the stopped container incurs no cost.
-                var appName = deployment.Spec.Template.Metadata.Labels != null
-                    && deployment.Spec.Template.Metadata.Labels.TryGetValue("app", out var app)
-                        ? app
-                        : deployment.Metadata.Name.Replace("-deployment", "");
-                await DeleteContainerLoadBalancerServiceAsync(client, appName);
+                string? appName = null;
+                if (deployment.Spec.Template.Metadata.Labels != null
+                    && deployment.Spec.Template.Metadata.Labels.TryGetValue("app", out var app))
+                {
+                    appName = app;
+                }
+                else if (!string.IsNullOrEmpty(deployment.Metadata.Name) && deployment.Metadata.Name.EndsWith("-deployment", StringComparison.Ordinal))
+                {
+                    appName = deployment.Metadata.Name[..^"-deployment".Length];
+                }
+
+                if (!string.IsNullOrEmpty(appName))
+                {
+                    await DeleteContainerLoadBalancerServiceAsync(client, appName);
+                }
                 stopped++;
             }
         }
