@@ -163,7 +163,7 @@ public class FkhCreateContainer : FkhServiceBase
         }
 
         await CreateDeploymentAsync(client, deploymentName, appName, fullImage, adminUsername, secretName, publicDnsName, databaseName, cpuRequest, memoryRequest, repo, project, multitenant, useSpot, licenseFileUrl, authenticationEmail, aadAppClientId, aadAppObjectId, aadAuthIsMultitenant, moveAllAppsToDevScope);
-        await CreateLoadBalancerServiceAsync(client, serviceName, appName, dnsLabel);
+        await EnsureContainerLoadBalancerServiceAsync(client, appName);
 
         // Set auto-stop annotation if requested
         string? autoStopInfo = null;
@@ -640,39 +640,5 @@ public class FkhCreateContainer : FkhServiceBase
 
         Logger.LogInformation("AAD App Registration created: {DisplayName} (appId: {AppId}, objectId: {ObjectId})", app.DisplayName, app.AppId, app.Id);
         return (app.Id!, app.AppId!);
-    }
-
-    private async Task CreateLoadBalancerServiceAsync(Kubernetes client, string serviceName, string appName, string dnsLabel)
-    {
-        var service = new V1Service
-        {
-            Metadata = new V1ObjectMeta
-            {
-                Name = serviceName,
-                NamespaceProperty = Namespace,
-                Annotations = new Dictionary<string, string>
-                {
-                    ["service.beta.kubernetes.io/azure-dns-label-name"] = dnsLabel,
-                    ["service.beta.kubernetes.io/azure-load-balancer-health-probe-protocol"] = "tcp",
-                    ["service.beta.kubernetes.io/azure-load-balancer-tcp-idle-timeout"] = "30"
-                }
-            },
-            Spec = new V1ServiceSpec
-            {
-                Type = "LoadBalancer",
-                ExternalTrafficPolicy = "Local",
-                Selector = new Dictionary<string, string> { ["app"] = appName },
-                Ports = new List<V1ServicePort>
-                {
-                    new() { Name = "http", Port = 80, TargetPort = 80 },
-                    new() { Name = "https", Port = 443, TargetPort = 443 },
-                    new() { Name = "soap", Port = 7047, TargetPort = 7047 },
-                    new() { Name = "odata", Port = 7048, TargetPort = 7048 },
-                    new() { Name = "dev", Port = 7049, TargetPort = 7049 },
-                }
-            }
-        };
-
-        await client.CreateNamespacedServiceAsync(service, Namespace);
     }
 }

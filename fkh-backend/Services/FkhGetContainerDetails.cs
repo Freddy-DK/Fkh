@@ -47,22 +47,11 @@ public class FkhGetContainerDetails : FkhServiceBase
 
         var isMultitenant = string.Equals(envVars?.FirstOrDefault(e => e.Name == "multitenant")?.Value, "Y", StringComparison.OrdinalIgnoreCase);
 
-        // Web client URL from the service FQDN
-        string? webClientUrl = null;
-        try
-        {
-            var serviceName = $"{appName}-service";
-            var svc = await client.ReadNamespacedServiceAsync(serviceName, Namespace);
-            var dnsLabel = svc.Metadata.Annotations?.TryGetValue("service.beta.kubernetes.io/azure-dns-label-name", out var label) == true ? label : null;
-            if (dnsLabel != null)
-            {
-                var fqdn = $"{dnsLabel}.{AksLocation}.cloudapp.azure.com";
-                webClientUrl = isMultitenant
-                    ? $"https://{fqdn}/BC/?tenant=default"
-                    : $"https://{fqdn}/BC/";
-            }
-        }
-        catch { /* service lookup failure is non-fatal */ }
+        // Web client URL — FQDN is deterministic from the app name (== the service's DNS label).
+        var fqdn = $"{appName}.{AksLocation}.cloudapp.azure.com";
+        var webClientUrl = isMultitenant
+            ? $"https://{fqdn}/BC/?tenant=default"
+            : $"https://{fqdn}/BC/";
 
         // Read the password from the Kubernetes secret
         var secretName = $"{appName}-secret";

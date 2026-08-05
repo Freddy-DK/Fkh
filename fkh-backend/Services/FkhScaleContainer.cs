@@ -23,6 +23,8 @@ public class FkhScaleContainer : FkhServiceBase
         var deploymentName = $"{appName}-deployment";
         var client = await GetKubernetesClientAsync();
         await ClearAutoStopAnnotationAsync(client, deploymentName);
+        // Release the LoadBalancer (public IP + LB rules) so a stopped container incurs no cost.
+        await DeleteContainerLoadBalancerServiceAsync(client, appName);
         return result;
     }
 
@@ -68,6 +70,10 @@ public class FkhScaleContainer : FkhServiceBase
 
         // Generate a fresh container blob SAS URL and inject it as an env var
         await InjectContainerBlobContainerEnvAsync(client, appName, deploymentName);
+
+        // Recreate the LoadBalancer service (deleted on stop). The DNS label reattaches to the
+        // new public IP, so the container's FQDN is preserved.
+        await EnsureContainerLoadBalancerServiceAsync(client, appName);
 
         var result = await ScaleAsync(parameters, 1);
 
@@ -165,6 +171,7 @@ public class FkhScaleContainer : FkhServiceBase
             deployment.Spec.Replicas = 0;
             await client.ReplaceNamespacedDeploymentAsync(deployment, deploymentName, Namespace);
             await ClearAutoStopAnnotationAsync(client, deploymentName);
+            await DeleteContainerLoadBalancerServiceAsync(client, appName);
             stopped.Add(appName);
         }
 
