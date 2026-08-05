@@ -71,11 +71,10 @@ public class FkhScaleContainer : FkhServiceBase
         // Generate a fresh container blob SAS URL and inject it as an env var
         await InjectContainerBlobContainerEnvAsync(client, appName, deploymentName);
 
-        // Recreate the LoadBalancer service (deleted on stop). The DNS label reattaches to the
-        // new public IP, so the container's FQDN is preserved.
-        await EnsureContainerLoadBalancerServiceAsync(client, appName);
-
         var result = await ScaleAsync(parameters, 1);
+
+        // Recreate the LoadBalancer service (deleted on stop). If scaling fails, we avoid allocating a public IP.
+        await EnsureContainerLoadBalancerServiceAsync(client, appName);
 
         parameters.TryGetValue("autostop", out var autoStopValue);
         parameters.TryGetValue("_timezone", out var autoStopTz);
