@@ -136,11 +136,8 @@ public abstract class FkhBackupDatabaseBase : FkhServiceBase
                 manifest = new DatabaseManifest();
             }
 
-            if (!manifest.Versions.Contains(backupVersion, StringComparer.OrdinalIgnoreCase))
-            {
-                manifest.Versions.Add(backupVersion);
-            }
-            manifest.Versions.Sort(StringComparer.OrdinalIgnoreCase);
+            manifest.Versions.RemoveAll(v => string.Equals(v, backupVersion, StringComparison.OrdinalIgnoreCase));
+            manifest.Versions.Add(backupVersion);
             manifest.Latest = backupVersion;
 
             var manifestJson = JsonSerializer.Serialize(manifest, new JsonSerializerOptions
