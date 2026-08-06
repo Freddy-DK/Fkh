@@ -1,5 +1,4 @@
 using System.Text.RegularExpressions;
-using Azure.Containers.ContainerRegistry;
 using Azure.Identity;
 using Azure.Storage.Blobs;
 using Fkh.Models;
@@ -14,12 +13,12 @@ namespace Fkh.Services;
 
 public class FkhCreateContainer : FkhServiceBase
 {
-    private readonly GitHubAppTokenService _gitHubAppTokenService;
+    private readonly AcrImageBuilder _imageBuilder;
     private readonly FkhUserSettings _userSettings;
 
-    public FkhCreateContainer(ILogger<FkhCreateContainer> logger, GitHubAppTokenService gitHubAppTokenService, FkhUserSettings userSettings) : base(logger)
+    public FkhCreateContainer(ILogger<FkhCreateContainer> logger, AcrImageBuilder imageBuilder, FkhUserSettings userSettings) : base(logger)
     {
-        _gitHubAppTokenService = gitHubAppTokenService;
+        _imageBuilder = imageBuilder;
         _userSettings = userSettings;
     }
 
@@ -61,8 +60,11 @@ public class FkhCreateContainer : FkhServiceBase
         if (!Regex.IsMatch(databaseName, @"^[a-zA-Z0-9_-]+$"))
             throw new ArgumentException("Name contains invalid characters. Only letters, digits, hyphens, and underscores are allowed.");
 
-        Logger.LogInformation("Checking ACR for image {Image}", fullImage);
-        await EnsureImageExistsAsync(imageTag, fullImage, artifactUrl);
+        var forceRebuild = parameters.TryGetValue("forceRebuild", out var frVal)
+            && string.Equals(frVal, "true", StringComparison.OrdinalIgnoreCase);
+
+        Logger.LogInformation("Checking ACR for image {Image} (forceRebuild={ForceRebuild})", fullImage, forceRebuild);
+        await EnsureImageExistsAsync(imageTag, artifactUrl, forceRebuild);
 
         Logger.LogInformation("Image found. Ensuring a Windows node is ready...");
         var client = await GetKubernetesClientAsync();
@@ -307,26 +309,9 @@ public class FkhCreateContainer : FkhServiceBase
         }
     }
 
-    private async Task EnsureImageExistsAsync(string tag, string fullImage, string artifactUrl)
+    private async Task EnsureImageExistsAsync(string tag, string artifactUrl, bool forceRebuild)
     {
-#pragma warning disable CS0618
-        var credential = new ManagedIdentityCredential(ClientId);
-#pragma warning restore CS0618
-        var client = new ContainerRegistryClient(new Uri($"https://{AcrLoginServer}"), credential);
-
-        try
-        {
-            var artifact = client.GetArtifact(AcrRepository, tag);
-            await artifact.GetManifestPropertiesAsync();
-        }
-        catch (Azure.RequestFailedException ex) when (ex.Status == 404)
-        {
-            Logger.LogInformation("Image not found in ACR. Triggering createImages workflow for {ArtifactUrl}...", artifactUrl);
-            await _gitHubAppTokenService.TriggerCreateImagesWorkflowAsync(artifactUrl);
-            throw new RetryAfterException(
-                $"Image does not exist yet: {fullImage}. The createImages workflow has been triggered automatically.",
-                retryAfterSeconds: 300);
-        }
+        await _imageBuilder.EnsureImageAsync(tag, artifactUrl, forceRebuild: forceRebuild);
     }
 
     private async Task CreateAdminSecretAsync(Kubernetes client, string secretName, string adminPassword)
