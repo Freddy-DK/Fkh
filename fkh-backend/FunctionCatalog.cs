@@ -140,6 +140,14 @@ public static class FunctionCatalog
                     Description = "Email address for Azure AD authentication. When set, the container uses AAD auth instead of NavUserPassword. Requires AAD App Registration setup — see docs/AadAuthentication.md.",
                     Required = false,
                     DefaultValue = null
+                },
+                new()
+                {
+                    Name = "openports",
+                    Type = "string",
+                    Description = "Comma-separated list of service ports to open on the load balancer. Each entry is a port number (1-65535) or a known name: soap (7047), odata (7048), dev (7049), snapshot (7083). The web ports 80/443 are always open.",
+                    Required = false,
+                    DefaultValue = "soap,odata,dev"
                 }
             }
         },

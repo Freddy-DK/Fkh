@@ -74,7 +74,9 @@ public class FkhScaleContainer : FkhServiceBase
         var result = await ScaleAsync(parameters, 1);
 
         // Recreate the LoadBalancer service (deleted on stop). If scaling fails, we avoid allocating a public IP.
-        await EnsureContainerLoadBalancerServiceAsync(client, appName);
+        string? openPorts = null;
+        deployment.Metadata.Annotations?.TryGetValue(OpenPortsAnnotation, out openPorts);
+        await EnsureContainerLoadBalancerServiceAsync(client, appName, openPorts);
 
         parameters.TryGetValue("autostop", out var autoStopValue);
         parameters.TryGetValue("_timezone", out var autoStopTz);
