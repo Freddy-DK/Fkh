@@ -5,7 +5,12 @@ public sealed class UptimeConfig
 {
     public string? TimeZone { get; set; }
 
-    /// <summary>Per-weekday uptime window as "HH:mm-HH:mm" (keys: Mon..Sun). A missing day is off.</summary>
+    /// <summary>
+    /// Per-weekday uptime rule (keys: Mon..Sun; a missing day is off). Supported formats:
+    ///   "HH:mm-HH:mm" — auto-start at the first time and auto-stop at the second.
+    ///   "HH:mm-"      — start-only: auto-start at the time, never auto-stop (manual stop).
+    ///   "-HH:mm"      — stop-only: auto-stop at the time, never auto-start (manual start).
+    /// </summary>
     public Dictionary<string, string>? Weekdays { get; set; }
 
     public NagerHolidayConfig? UseNagerHolidays { get; set; }
@@ -35,6 +40,11 @@ public sealed class ClusterScheduleOverrides
 {
     public DateTimeOffset? NextStart { get; set; }
     public DateTimeOffset? NextStop { get; set; }
+
+    /// <summary>Most recent recurring start/stop edge already applied. Prevents an edge from
+    /// re-firing, so a manual start/stop is respected until the next scheduled edge.</summary>
+    public DateTimeOffset? LastScheduleStart { get; set; }
+    public DateTimeOffset? LastScheduleStop { get; set; }
 }
 
 /// <summary>Computed view of the cluster schedule for status reporting.</summary>

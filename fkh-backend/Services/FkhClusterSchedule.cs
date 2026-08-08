@@ -70,24 +70,45 @@ public class FkhClusterSchedule
             return;
         }
 
-        // 2. Recurring schedule (suppressed while a one-off override is still pending).
+        // 2. Recurring schedule — edge-triggered. Each start/stop time fires once; a manual
+        //    start/stop is then respected until the next scheduled edge. This also lets a rule
+        //    be one-directional (start-only never auto-stops, stop-only never auto-starts).
         var cfg = await GetUptimeConfigAsync();
         if (cfg?.Weekdays is null || cfg.Weekdays.Count == 0)
             return; // scheduler disabled
 
         var tz = ResolveTimeZone(cfg.TimeZone);
-        var desiredRunning = await IsWithinWindowAsync(cfg, tz, nowUtc);
+        var (recentStart, recentStop) = await MostRecentEdgesAsync(cfg, tz, nowUtc);
 
-        if (desiredRunning && stopped && overrides.NextStart is null)
+        // The later of the two past edges decides the current desired state.
+        var startGoverns = recentStart is { } rs && (recentStop is null || rs >= recentStop);
+        var stopGoverns = recentStop is { } rt && (recentStart is null || rt > recentStart);
+        var changed = false;
+
+        if (recentStart is { } startEdge && !(overrides.LastScheduleStart is { } ls && ls >= startEdge))
         {
-            _logger.LogInformation("Schedule: starting cluster (inside uptime window).");
-            await _clusterControl.StartClusterForScheduleAsync();
+            if (startGoverns && stopped && overrides.NextStart is null)
+            {
+                _logger.LogInformation("Schedule: starting cluster (start edge {Edge} UTC).", startEdge);
+                await _clusterControl.StartClusterForScheduleAsync();
+            }
+            overrides.LastScheduleStart = startEdge;
+            changed = true;
         }
-        else if (!desiredRunning && running && overrides.NextStop is null)
+
+        if (recentStop is { } stopEdge && !(overrides.LastScheduleStop is { } lt && lt >= stopEdge))
         {
-            _logger.LogInformation("Schedule: stopping cluster (outside uptime window).");
-            await _clusterControl.StopClusterForScheduleAsync();
+            if (stopGoverns && running && overrides.NextStop is null)
+            {
+                _logger.LogInformation("Schedule: stopping cluster (stop edge {Edge} UTC).", stopEdge);
+                await _clusterControl.StopClusterForScheduleAsync();
+            }
+            overrides.LastScheduleStop = stopEdge;
+            changed = true;
         }
+
+        if (changed)
+            await _clusterControl.SaveOverridesAsync(overrides);
     }
 
     /// <summary>Builds a read-only summary of the schedule for status reporting.</summary>
@@ -114,7 +135,7 @@ public class FkhClusterSchedule
             ? null
             : (cfg.Weekdays.TryGetValue(DayKeys[(int)localToday.DayOfWeek], out var w) ? w : null);
 
-        summary.DesiredRunning = await IsWithinWindowAsync(cfg, tz, nowUtc);
+        summary.DesiredRunning = summary.TodayExcluded ? false : await ComputeDesiredRunningAsync(cfg, tz, nowUtc);
         (summary.NextStart, summary.NextStop) = await ComputeNextTransitionsAsync(cfg, tz, nowUtc);
         return summary;
     }
@@ -135,11 +156,39 @@ public class FkhClusterSchedule
         }
     }
 
-    private async Task<bool> IsWithinWindowAsync(UptimeConfig cfg, TimeZoneInfo tz, DateTimeOffset instantUtc)
+    /// <summary>A single day's schedule edges (either may be absent for a one-directional rule).</summary>
+    private readonly record struct DayWindow(DateTimeOffset? Start, DateTimeOffset? Stop);
+
+    /// <summary>Desired running state = the later of the two most recent past edges was a start.</summary>
+    private async Task<bool> ComputeDesiredRunningAsync(UptimeConfig cfg, TimeZoneInfo tz, DateTimeOffset nowUtc)
     {
-        var local = TimeZoneInfo.ConvertTime(instantUtc, tz).DateTime;
-        var window = await GetWindowAsync(cfg, tz, DateOnly.FromDateTime(local));
-        return window is { } w && instantUtc >= w.Start && instantUtc < w.Stop;
+        var (recentStart, recentStop) = await MostRecentEdgesAsync(cfg, tz, nowUtc);
+        return recentStart is { } rs && (recentStop is null || rs >= recentStop);
+    }
+
+    /// <summary>Finds the most recent past start edge and stop edge (each searched independently).</summary>
+    private async Task<(DateTimeOffset? Start, DateTimeOffset? Stop)> MostRecentEdgesAsync(
+        UptimeConfig cfg, TimeZoneInfo tz, DateTimeOffset nowUtc)
+    {
+        DateTimeOffset? start = null, stop = null;
+        var localToday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(nowUtc, tz).DateTime);
+
+        for (var offset = 0; offset <= ScanDays; offset++)
+        {
+            var window = await GetWindowAsync(cfg, tz, localToday.AddDays(-offset));
+            if (window is not { } w)
+                continue;
+
+            if (start is null && w.Start is { } s && s <= nowUtc)
+                start = s;
+            if (stop is null && w.Stop is { } t && t <= nowUtc)
+                stop = t;
+
+            if (start is not null && stop is not null)
+                break;
+        }
+
+        return (start, stop);
     }
 
     private async Task<(DateTimeOffset? NextStart, DateTimeOffset? NextStop)> ComputeNextTransitionsAsync(
@@ -154,10 +203,10 @@ public class FkhClusterSchedule
             if (window is not { } w)
                 continue;
 
-            if (nextStart is null && w.Start > nowUtc)
-                nextStart = w.Start;
-            if (nextStop is null && w.Stop > nowUtc)
-                nextStop = w.Stop;
+            if (nextStart is null && w.Start is { } s && s > nowUtc)
+                nextStart = s;
+            if (nextStop is null && w.Stop is { } t && t > nowUtc)
+                nextStop = t;
 
             if (nextStart is not null && nextStop is not null)
                 break;
@@ -166,7 +215,7 @@ public class FkhClusterSchedule
         return (nextStart, nextStop);
     }
 
-    private async Task<(DateTimeOffset Start, DateTimeOffset Stop)?> GetWindowAsync(
+    private async Task<DayWindow?> GetWindowAsync(
         UptimeConfig cfg, TimeZoneInfo tz, DateOnly localDate)
     {
         if (await IsExcludedAsync(cfg, localDate))
@@ -179,11 +228,13 @@ public class FkhClusterSchedule
         if (!TryParseRange(range, out var startTime, out var stopTime))
             return null;
 
-        var localStart = localDate.ToDateTime(startTime);
-        var localStop = localDate.ToDateTime(stopTime);
-        var start = new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(localStart, tz), TimeSpan.Zero);
-        var stop = new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(localStop, tz), TimeSpan.Zero);
-        return (start, stop);
+        DateTimeOffset? start = startTime is { } st
+            ? new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(localDate.ToDateTime(st), tz), TimeSpan.Zero)
+            : null;
+        DateTimeOffset? stop = stopTime is { } sp
+            ? new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(localDate.ToDateTime(sp), tz), TimeSpan.Zero)
+            : null;
+        return new DayWindow(start, stop);
     }
 
     private Task<bool> IsExcludedAsync(UptimeConfig cfg, DateOnly localDate)
@@ -194,17 +245,32 @@ public class FkhClusterSchedule
         return _holidays.IsExcludedAsync(localDate, holidays.Countries, holidays.Types);
     }
 
-    private static bool TryParseRange(string range, out TimeOnly start, out TimeOnly stop)
+    private static bool TryParseRange(string range, out TimeOnly? start, out TimeOnly? stop)
     {
-        start = default;
-        stop = default;
+        start = null;
+        stop = null;
         var parts = range.Split('-', StringSplitOptions.TrimEntries);
         if (parts.Length != 2)
             return false;
-        if (!TimeOnly.TryParse(parts[0], CultureInfo.InvariantCulture, out start)
-            || !TimeOnly.TryParse(parts[1], CultureInfo.InvariantCulture, out stop))
-            return false;
-        return stop > start;
+
+        if (parts[0].Length > 0)
+        {
+            if (!TimeOnly.TryParse(parts[0], CultureInfo.InvariantCulture, out var s))
+                return false;
+            start = s;
+        }
+        if (parts[1].Length > 0)
+        {
+            if (!TimeOnly.TryParse(parts[1], CultureInfo.InvariantCulture, out var t))
+                return false;
+            stop = t;
+        }
+
+        if (start is null && stop is null)
+            return false; // "-" / empty is not a valid rule
+        if (start is { } sv && stop is { } tv && tv <= sv)
+            return false; // a full window must stop after it starts
+        return true;
     }
 
     private TimeZoneInfo ResolveTimeZone(string? timeZoneId)

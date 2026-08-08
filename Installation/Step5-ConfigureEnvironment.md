@@ -222,7 +222,10 @@ default_user_settings = <<-EOT
 EOT
 ```
 
-- `Weekdays` — uptime window per day as `HH:mm-HH:mm`; a missing day means the cluster stays off all day.
+- `Weekdays` — uptime rule per day; a missing day means the cluster stays off all day. Each value is one of:
+  - `HH:mm-HH:mm` — auto-start at the first time, auto-stop at the second.
+  - `HH:mm-` — start-only: auto-start at the time, never auto-stop (requires a manual stop).
+  - `-HH:mm` — stop-only: auto-stop at the time, never auto-start (requires a manual start).
 - `TimeZone` — a Windows time-zone id; times above are wall-clock in this zone. Defaults to UTC if omitted.
 - `UseNagerHolidays` — a day is excluded (cluster off) only when **every** listed country has a matching holiday, so if anyone is working the cluster stays on. `Types` supports `*` wildcards; subdivision codes like `DE-BE` are supported. Uses the public [Nager.Date](https://date.nager.at) API.
 

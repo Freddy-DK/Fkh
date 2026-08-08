@@ -223,6 +223,10 @@ github_app_installation_id = "123456789"  # paste your Installation ID here
 #       "UseNagerHolidays": { "Countries": "DK", "Types": "Public,Bank" }
 #     }
 #   }
+# Each weekday value is one of:
+#   "HH:mm-HH:mm" - auto-start at the first time, auto-stop at the second.
+#   "HH:mm-"      - start-only: auto-start at the time, never auto-stop (manual stop).
+#   "-HH:mm"      - stop-only: auto-stop at the time, never auto-start (manual start).
 default_user_settings = <<-EOT
   {
     "_members": {
