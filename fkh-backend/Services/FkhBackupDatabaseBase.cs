@@ -55,6 +55,24 @@ public abstract class FkhBackupDatabaseBase : FkhServiceBase
             var blobContainerClient = blobServiceClient.GetBlobContainerClient("databases");
             await blobContainerClient.CreateIfNotExistsAsync();
 
+            // Reuse the existing version's casing so a re-upload overwrites the same blob instead of creating a case-variant duplicate.
+            try
+            {
+                var existingManifestResponse = await blobContainerClient
+                    .GetBlobClient($"{backupName}/all.json").DownloadContentAsync();
+                var existingManifest = JsonSerializer.Deserialize<DatabaseManifest>(
+                    existingManifestResponse.Value.Content.ToString(),
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                var existingVersion = existingManifest?.Versions.FirstOrDefault(
+                    v => string.Equals(v, backupVersion, StringComparison.OrdinalIgnoreCase));
+                if (existingVersion is not null)
+                    backupVersion = existingVersion;
+            }
+            catch (Azure.RequestFailedException ex) when (ex.Status == 404)
+            {
+                // No manifest yet; nothing to normalize.
+            }
+
             var delegationKey = await blobServiceClient.GetUserDelegationKeyAsync(
                 DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(60));
 
@@ -118,10 +136,8 @@ public abstract class FkhBackupDatabaseBase : FkhServiceBase
                 manifest = new DatabaseManifest();
             }
 
-            if (!manifest.Versions.Contains(backupVersion, StringComparer.OrdinalIgnoreCase))
-            {
-                manifest.Versions.Add(backupVersion);
-            }
+            manifest.Versions.RemoveAll(v => string.Equals(v, backupVersion, StringComparison.OrdinalIgnoreCase));
+            manifest.Versions.Add(backupVersion);
             manifest.Latest = backupVersion;
 
             var manifestJson = JsonSerializer.Serialize(manifest, new JsonSerializerOptions

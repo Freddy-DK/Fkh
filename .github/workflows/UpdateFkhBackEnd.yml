@@ -148,7 +148,10 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Install Azure Functions Core Tools
-        run: npm install -g azure-functions-core-tools@4 --unsafe-perm true
+        # Pin an explicit version rather than @4: a newly published Core Tools
+        # release can be tagged in npm before its CDN zip exists, causing the
+        # post-install download to 404 (e.g. 4.13.2).
+        run: npm install -g azure-functions-core-tools@4.12.1 --unsafe-perm true
 
       - name: Azure CLI login (OIDC)
         uses: azure/login@v3
@@ -156,6 +159,31 @@ jobs:
           client-id: ${{ steps.parse.outputs.deploy_client_id }}
           tenant-id: ${{ steps.parse.outputs.tenant_id }}
           subscription-id: ${{ steps.parse.outputs.subscription_id }}
+
+      # ── Ensure AKS cluster is running ─────────────────────────────────────
+      # A stopped AKS cluster cannot be reached — the kubectl steps below fail.
+      # If the cluster is stopped, start it (and wait) before continuing.
+      - name: Ensure AKS cluster is running
+        shell: bash
+        run: |
+          AKS_RG="${{ steps.parse.outputs.resource_group_name }}"
+          AKS_NAME="fkh-${{ steps.parse.outputs.deployment_name }}-aks"
+
+          if ! az aks show --resource-group "$AKS_RG" --name "$AKS_NAME" >/dev/null 2>&1; then
+            echo "AKS cluster $AKS_NAME not found — nothing to start."
+            exit 0
+          fi
+
+          POWER_STATE=$(az aks show --resource-group "$AKS_RG" --name "$AKS_NAME" --query "powerState.code" -o tsv)
+          echo "AKS cluster $AKS_NAME power state: $POWER_STATE"
+
+          if [ "$POWER_STATE" = "Stopped" ]; then
+            echo "Cluster is stopped — starting it before continuing..."
+            az aks start --resource-group "$AKS_RG" --name "$AKS_NAME"
+            echo "Cluster started."
+          else
+            echo "Cluster is already running."
+          fi
 
       # ── Stamp version into AKS ───────────────────────────────────────────
       - name: Set fkh-version ConfigMap

@@ -6,7 +6,7 @@ sealed class UploadFileCommand : VersionedBlobCommand
     [
         new() { Name = "localPath", Type = "file", Description = "Path to the local file to upload.", Required = true },
         new() { Name = "FileName", Type = "string", Description = "File name (used as the folder name in blob storage).", Required = true },
-        new() { Name = "FileVersion", Type = "string", Description = "Version label for this file (used as the blob name).", Required = true }
+        new() { Name = "FileVersion", Type = "string", Description = "Version label for this file (used as the blob name). Defaults to the current UTC time as yyyyMMddHHmm.", Required = false }
     ];
 
     private static readonly UploadSpec Spec = new()

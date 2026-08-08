@@ -53,6 +53,10 @@ public class FkhCreateContainer : FkhServiceBase
             Environment.GetEnvironmentVariable("AAD_AUTH_IS_MULTITENANT") ?? "false",
             "true", StringComparison.OrdinalIgnoreCase);
 
+        // Validate the requested LoadBalancer ports early and normalize to a canonical, persisted form.
+        var openPortsSpec = parameters.TryGetValue("openports", out var opv) && !string.IsNullOrWhiteSpace(opv) ? opv : null;
+        var openPorts = string.Join(",", ParseOpenPorts(openPortsSpec));
+
         var imageTag = GetImageTag(artifactUrl);
         var fullImage = $"{AcrLoginServer}/{AcrRepository}:{imageTag}";
         var appName = ResolveNewAppName(parameters);
@@ -162,8 +166,8 @@ public class FkhCreateContainer : FkhServiceBase
             (aadAppObjectId, aadAppClientId) = await CreateAadAppRegistrationAsync(appName, redirectUri, aadAuthIsMultitenant);
         }
 
-        await CreateDeploymentAsync(client, deploymentName, appName, fullImage, adminUsername, secretName, publicDnsName, databaseName, cpuRequest, memoryRequest, repo, project, multitenant, useSpot, licenseFileUrl, authenticationEmail, aadAppClientId, aadAppObjectId, aadAuthIsMultitenant, moveAllAppsToDevScope);
-        await CreateLoadBalancerServiceAsync(client, serviceName, appName, dnsLabel);
+        await CreateDeploymentAsync(client, deploymentName, appName, fullImage, adminUsername, secretName, publicDnsName, databaseName, cpuRequest, memoryRequest, repo, project, multitenant, useSpot, licenseFileUrl, authenticationEmail, aadAppClientId, aadAppObjectId, aadAuthIsMultitenant, moveAllAppsToDevScope, openPorts);
+        await EnsureContainerLoadBalancerServiceAsync(client, appName, openPorts);
 
         // Set auto-stop annotation if requested
         string? autoStopInfo = null;
@@ -348,7 +352,7 @@ public class FkhCreateContainer : FkhServiceBase
     private async Task CreateDeploymentAsync(
         Kubernetes client, string deploymentName, string appName, string fullImage,
         string adminUsername, string secretName, string publicDnsName, string databaseName,
-        string cpuRequest, string memoryRequest, string? repo, string? project, bool multitenant, bool useSpot, string? licenseFileUrl, string? authenticationEmail, string? aadAppClientId, string? aadAppObjectId, bool aadAuthIsMultitenant, bool moveAllAppsToDevScope)
+        string cpuRequest, string memoryRequest, string? repo, string? project, bool multitenant, bool useSpot, string? licenseFileUrl, string? authenticationEmail, string? aadAppClientId, string? aadAppObjectId, bool aadAuthIsMultitenant, bool moveAllAppsToDevScope, string? openPorts)
     {
         var annotations = new Dictionary<string, string>();
         if (!string.IsNullOrWhiteSpace(repo))
@@ -359,6 +363,8 @@ public class FkhCreateContainer : FkhServiceBase
             annotations["fkh/aad-app-object-id"] = aadAppObjectId;
         if (moveAllAppsToDevScope)
             annotations["fkh/dev-scope"] = "true";
+        if (!string.IsNullOrWhiteSpace(openPorts))
+            annotations[OpenPortsAnnotation] = openPorts;
 
         var nodeSelector = new Dictionary<string, string>
         {
@@ -640,39 +646,5 @@ public class FkhCreateContainer : FkhServiceBase
 
         Logger.LogInformation("AAD App Registration created: {DisplayName} (appId: {AppId}, objectId: {ObjectId})", app.DisplayName, app.AppId, app.Id);
         return (app.Id!, app.AppId!);
-    }
-
-    private async Task CreateLoadBalancerServiceAsync(Kubernetes client, string serviceName, string appName, string dnsLabel)
-    {
-        var service = new V1Service
-        {
-            Metadata = new V1ObjectMeta
-            {
-                Name = serviceName,
-                NamespaceProperty = Namespace,
-                Annotations = new Dictionary<string, string>
-                {
-                    ["service.beta.kubernetes.io/azure-dns-label-name"] = dnsLabel,
-                    ["service.beta.kubernetes.io/azure-load-balancer-health-probe-protocol"] = "tcp",
-                    ["service.beta.kubernetes.io/azure-load-balancer-tcp-idle-timeout"] = "30"
-                }
-            },
-            Spec = new V1ServiceSpec
-            {
-                Type = "LoadBalancer",
-                ExternalTrafficPolicy = "Local",
-                Selector = new Dictionary<string, string> { ["app"] = appName },
-                Ports = new List<V1ServicePort>
-                {
-                    new() { Name = "http", Port = 80, TargetPort = 80 },
-                    new() { Name = "https", Port = 443, TargetPort = 443 },
-                    new() { Name = "soap", Port = 7047, TargetPort = 7047 },
-                    new() { Name = "odata", Port = 7048, TargetPort = 7048 },
-                    new() { Name = "dev", Port = 7049, TargetPort = 7049 },
-                }
-            }
-        };
-
-        await client.CreateNamespacedServiceAsync(service, Namespace);
     }
 }

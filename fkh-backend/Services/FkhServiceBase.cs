@@ -504,6 +504,46 @@ public abstract class FkhServiceBase
     }
 
     protected const string AutoStopAnnotation = "fkh/auto-stop-at";
+    protected const string OpenPortsAnnotation = "fkh/open-ports";
+
+    /// <summary>Default LoadBalancer ports opened (in addition to the always-open web ports 80/443).</summary>
+    public const string DefaultOpenPorts = "soap,odata,dev";
+
+    // Toggleable BC service endpoints exposed through the container LoadBalancer.
+    private static readonly IReadOnlyDictionary<string, int> NamedPorts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["soap"] = 7047,
+        ["odata"] = 7048,
+        ["dev"] = 7049,
+        ["snapshot"] = 7083,
+    };
+
+    /// <summary>
+    /// Parses a comma-separated open-ports spec into an ordered, de-duplicated list of port numbers.
+    /// Known names (soap/odata/dev/snapshot, case-insensitive) are resolved to their number; every other
+    /// entry must be a port number 1-65535. Ports 80/443 are always open and are not part of this list.
+    /// Falls back to <see cref="DefaultOpenPorts"/> when the spec is empty. Throws on anything else.
+    /// </summary>
+    protected static List<int> ParseOpenPorts(string? spec)
+    {
+        if (string.IsNullOrWhiteSpace(spec))
+            spec = DefaultOpenPorts;
+
+        var result = new List<int>();
+        foreach (var raw in spec.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var token = NamedPorts.TryGetValue(raw, out var mapped) ? mapped.ToString() : raw;
+            if (!int.TryParse(token, out var port) || port is < 1 or > 65535)
+            {
+                var knownNames = string.Join(", ", NamedPorts.Select(kv => $"{kv.Key} ({kv.Value})"));
+                throw new ArgumentException(
+                    $"Invalid port '{raw}'. Use a port number (1-65535) or a known name: {knownNames}.");
+            }
+            if (!result.Contains(port))
+                result.Add(port);
+        }
+        return result;
+    }
 
     /// <summary>
     /// Parses an autostop value. Accepts:
@@ -582,6 +622,83 @@ public abstract class FkhServiceBase
             V1Patch.PatchType.MergePatch);
         await client.PatchNamespacedDeploymentAsync(patch, deploymentName, Namespace);
         Logger.LogInformation("Cleared auto-stop annotation on '{Deployment}'.", deploymentName);
+    }
+
+    /// <summary>
+    /// Creates the per-container LoadBalancer service (public IP + DNS label). Idempotent:
+    /// does nothing if the service already exists. The DNS label equals the app name, so the
+    /// container's FQDN ({appName}.{region}.cloudapp.azure.com) is preserved across recreation
+    /// even though the underlying public IP may change.
+    /// </summary>
+    protected async Task EnsureContainerLoadBalancerServiceAsync(Kubernetes client, string appName, string? openPortsSpec = null)
+    {
+        var serviceName = $"{appName}-service";
+        try
+        {
+            await client.ReadNamespacedServiceAsync(serviceName, Namespace);
+            Logger.LogInformation("LoadBalancer service '{Service}' already exists.", serviceName);
+            return;
+        }
+        catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            // Not found — create it below.
+        }
+
+        // Web ports 80/443 are always open; the remaining service endpoints are opt-in via openPortsSpec.
+        var ports = new List<V1ServicePort>
+        {
+            new() { Name = "http", Port = 80, TargetPort = 80 },
+            new() { Name = "https", Port = 443, TargetPort = 443 },
+        };
+        foreach (var port in ParseOpenPorts(openPortsSpec))
+        {
+            // Prefer the known BC name for readability; fall back to port-<n> for arbitrary ports.
+            var portName = NamedPorts.FirstOrDefault(kv => kv.Value == port).Key ?? $"port-{port}";
+            ports.Add(new() { Name = portName, Port = port, TargetPort = port });
+        }
+
+        var service = new V1Service
+        {
+            Metadata = new V1ObjectMeta
+            {
+                Name = serviceName,
+                NamespaceProperty = Namespace,
+                Annotations = new Dictionary<string, string>
+                {
+                    ["service.beta.kubernetes.io/azure-dns-label-name"] = appName,
+                    ["service.beta.kubernetes.io/azure-load-balancer-health-probe-protocol"] = "tcp",
+                    ["service.beta.kubernetes.io/azure-load-balancer-tcp-idle-timeout"] = "30"
+                }
+            },
+            Spec = new V1ServiceSpec
+            {
+                Type = "LoadBalancer",
+                ExternalTrafficPolicy = "Local",
+                Selector = new Dictionary<string, string> { ["app"] = appName },
+                Ports = ports
+            }
+        };
+
+        await client.CreateNamespacedServiceAsync(service, Namespace);
+        Logger.LogInformation("Created LoadBalancer service '{Service}'.", serviceName);
+    }
+
+    /// <summary>
+    /// Deletes the per-container LoadBalancer service, releasing its public IP and LB rules so a
+    /// stopped container incurs no Load Balancer cost. Ignores NotFound.
+    /// </summary>
+    protected async Task DeleteContainerLoadBalancerServiceAsync(Kubernetes client, string appName)
+    {
+        var serviceName = $"{appName}-service";
+        try
+        {
+            await client.DeleteNamespacedServiceAsync(serviceName, Namespace);
+            Logger.LogInformation("Deleted LoadBalancer service '{Service}'.", serviceName);
+        }
+        catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            // Already gone — nothing to do.
+        }
     }
 
     protected async Task<string> ResolveUseDatabaseAsync(string useDatabase)
