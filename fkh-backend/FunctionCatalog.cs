@@ -145,7 +145,7 @@ public static class FunctionCatalog
                 {
                     Name = "openports",
                     Type = "string",
-                    Description = "Comma-separated list of service ports to open on the load balancer, by name or number (case-insensitive): soap (7047), odata (7048), dev (7049), snapshot (7083). The web ports 80/443 are always open.",
+                    Description = "Comma-separated list of service ports to open on the load balancer. Each entry is a port number (1-65535) or a known name: soap (7047), odata (7048), dev (7049), snapshot (7083). The web ports 80/443 are always open.",
                     Required = false,
                     DefaultValue = "soap,odata,dev"
                 }

@@ -519,38 +519,28 @@ public abstract class FkhServiceBase
     };
 
     /// <summary>
-    /// Parses a comma-separated open-ports spec (case-insensitive names or port numbers) into an
-    /// ordered, de-duplicated list. Ports 80/443 are always open and are not part of this list.
-    /// Falls back to <see cref="DefaultOpenPorts"/> when the spec is empty. Throws on unknown values.
+    /// Parses a comma-separated open-ports spec into an ordered, de-duplicated list of port numbers.
+    /// Known names (soap/odata/dev/snapshot, case-insensitive) are resolved to their number; every other
+    /// entry must be a port number 1-65535. Ports 80/443 are always open and are not part of this list.
+    /// Falls back to <see cref="DefaultOpenPorts"/> when the spec is empty. Throws on anything else.
     /// </summary>
-    protected static List<(string Name, int Port)> ParseOpenPorts(string? spec)
+    protected static List<int> ParseOpenPorts(string? spec)
     {
         if (string.IsNullOrWhiteSpace(spec))
             spec = DefaultOpenPorts;
 
-        var result = new List<(string Name, int Port)>();
+        var result = new List<int>();
         foreach (var raw in spec.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            string name;
-            int port;
-            if (NamedPorts.TryGetValue(raw, out var mapped))
+            var token = NamedPorts.TryGetValue(raw, out var mapped) ? mapped.ToString() : raw;
+            if (!int.TryParse(token, out var port) || port is < 1 or > 65535)
             {
-                name = raw.ToLowerInvariant();
-                port = mapped;
-            }
-            else if (int.TryParse(raw, out var num) && NamedPorts.Any(kv => kv.Value == num))
-            {
-                var kv = NamedPorts.First(kv => kv.Value == num);
-                name = kv.Key;
-                port = kv.Value;
-            }
-            else
-            {
+                var knownNames = string.Join(", ", NamedPorts.Select(kv => $"{kv.Key} ({kv.Value})"));
                 throw new ArgumentException(
-                    $"Invalid port '{raw}'. Allowed values: soap (7047), odata (7048), dev (7049), snapshot (7083).");
+                    $"Invalid port '{raw}'. Use a port number (1-65535) or a known name: {knownNames}.");
             }
-            if (!result.Any(r => r.Port == port))
-                result.Add((name, port));
+            if (!result.Contains(port))
+                result.Add(port);
         }
         return result;
     }
@@ -660,8 +650,12 @@ public abstract class FkhServiceBase
             new() { Name = "http", Port = 80, TargetPort = 80 },
             new() { Name = "https", Port = 443, TargetPort = 443 },
         };
-        foreach (var (portName, portNumber) in ParseOpenPorts(openPortsSpec))
-            ports.Add(new() { Name = portName, Port = portNumber, TargetPort = portNumber });
+        foreach (var port in ParseOpenPorts(openPortsSpec))
+        {
+            // Prefer the known BC name for readability; fall back to port-<n> for arbitrary ports.
+            var portName = NamedPorts.FirstOrDefault(kv => kv.Value == port).Key ?? $"port-{port}";
+            ports.Add(new() { Name = portName, Port = port, TargetPort = port });
+        }
 
         var service = new V1Service
         {

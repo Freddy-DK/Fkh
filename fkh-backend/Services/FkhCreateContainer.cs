@@ -55,7 +55,7 @@ public class FkhCreateContainer : FkhServiceBase
 
         // Validate the requested LoadBalancer ports early and normalize to a canonical, persisted form.
         var openPortsSpec = parameters.TryGetValue("openports", out var opv) && !string.IsNullOrWhiteSpace(opv) ? opv : null;
-        var openPorts = string.Join(",", ParseOpenPorts(openPortsSpec).Select(x => x.Name));
+        var openPorts = string.Join(",", ParseOpenPorts(openPortsSpec));
 
         var imageTag = GetImageTag(artifactUrl);
         var fullImage = $"{AcrLoginServer}/{AcrRepository}:{imageTag}";
