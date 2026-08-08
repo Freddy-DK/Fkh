@@ -122,6 +122,13 @@ jobs:
         shell: pwsh
         run: |
           $varFile = "${{ steps.tfvars.outputs.tfvars_file }}"
+
+          # Fail fast on invalid default_user_settings JSON (otherwise it deploys silently and getsettings returns empty).
+          # Use System.Text.Json to match the backend's parser (ConvertFrom-Json is more lenient, e.g. allows trailing commas).
+          if ((Get-Content $varFile -Raw) -match '(?s)default_user_settings\s*=\s*<<-?\s*(\w+)\r?\n(.*?)\r?\n\s*\1\b') {
+            try { [System.Text.Json.JsonDocument]::Parse($Matches[2]).Dispose() } catch { throw "default_user_settings in config/deployment.tfvars is not valid JSON: $($_.Exception.Message)" }
+          }
+
           function Get-TfVar([string]$Name, [string]$File) {
             $line = Get-Content $File | Where-Object { $_ -match "^\s*$Name\s*=" } | Select-Object -First 1
             if ($line -match '=\s*"([^"]+)"') { return $Matches[1] }
