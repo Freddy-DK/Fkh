@@ -53,6 +53,10 @@ public class FkhCreateContainer : FkhServiceBase
             Environment.GetEnvironmentVariable("AAD_AUTH_IS_MULTITENANT") ?? "false",
             "true", StringComparison.OrdinalIgnoreCase);
 
+        // Validate the requested LoadBalancer ports early and normalize to a canonical, persisted form.
+        var openPortsSpec = parameters.TryGetValue("openports", out var opv) && !string.IsNullOrWhiteSpace(opv) ? opv : null;
+        var openPorts = string.Join(",", ParseOpenPorts(openPortsSpec).Select(x => x.Name));
+
         var imageTag = GetImageTag(artifactUrl);
         var fullImage = $"{AcrLoginServer}/{AcrRepository}:{imageTag}";
         var appName = ResolveNewAppName(parameters);
@@ -162,8 +166,8 @@ public class FkhCreateContainer : FkhServiceBase
             (aadAppObjectId, aadAppClientId) = await CreateAadAppRegistrationAsync(appName, redirectUri, aadAuthIsMultitenant);
         }
 
-        await CreateDeploymentAsync(client, deploymentName, appName, fullImage, adminUsername, secretName, publicDnsName, databaseName, cpuRequest, memoryRequest, repo, project, multitenant, useSpot, licenseFileUrl, authenticationEmail, aadAppClientId, aadAppObjectId, aadAuthIsMultitenant, moveAllAppsToDevScope);
-        await EnsureContainerLoadBalancerServiceAsync(client, appName);
+        await CreateDeploymentAsync(client, deploymentName, appName, fullImage, adminUsername, secretName, publicDnsName, databaseName, cpuRequest, memoryRequest, repo, project, multitenant, useSpot, licenseFileUrl, authenticationEmail, aadAppClientId, aadAppObjectId, aadAuthIsMultitenant, moveAllAppsToDevScope, openPorts);
+        await EnsureContainerLoadBalancerServiceAsync(client, appName, openPorts);
 
         // Set auto-stop annotation if requested
         string? autoStopInfo = null;
@@ -348,7 +352,7 @@ public class FkhCreateContainer : FkhServiceBase
     private async Task CreateDeploymentAsync(
         Kubernetes client, string deploymentName, string appName, string fullImage,
         string adminUsername, string secretName, string publicDnsName, string databaseName,
-        string cpuRequest, string memoryRequest, string? repo, string? project, bool multitenant, bool useSpot, string? licenseFileUrl, string? authenticationEmail, string? aadAppClientId, string? aadAppObjectId, bool aadAuthIsMultitenant, bool moveAllAppsToDevScope)
+        string cpuRequest, string memoryRequest, string? repo, string? project, bool multitenant, bool useSpot, string? licenseFileUrl, string? authenticationEmail, string? aadAppClientId, string? aadAppObjectId, bool aadAuthIsMultitenant, bool moveAllAppsToDevScope, string? openPorts)
     {
         var annotations = new Dictionary<string, string>();
         if (!string.IsNullOrWhiteSpace(repo))
@@ -359,6 +363,8 @@ public class FkhCreateContainer : FkhServiceBase
             annotations["fkh/aad-app-object-id"] = aadAppObjectId;
         if (moveAllAppsToDevScope)
             annotations["fkh/dev-scope"] = "true";
+        if (!string.IsNullOrWhiteSpace(openPorts))
+            annotations[OpenPortsAnnotation] = openPorts;
 
         var nodeSelector = new Dictionary<string, string>
         {

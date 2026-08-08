@@ -504,6 +504,56 @@ public abstract class FkhServiceBase
     }
 
     protected const string AutoStopAnnotation = "fkh/auto-stop-at";
+    protected const string OpenPortsAnnotation = "fkh/open-ports";
+
+    /// <summary>Default LoadBalancer ports opened (in addition to the always-open web ports 80/443).</summary>
+    public const string DefaultOpenPorts = "soap,odata,dev";
+
+    // Toggleable BC service endpoints exposed through the container LoadBalancer.
+    private static readonly IReadOnlyDictionary<string, int> NamedPorts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["soap"] = 7047,
+        ["odata"] = 7048,
+        ["dev"] = 7049,
+        ["snapshot"] = 7083,
+    };
+
+    /// <summary>
+    /// Parses a comma-separated open-ports spec (case-insensitive names or port numbers) into an
+    /// ordered, de-duplicated list. Ports 80/443 are always open and are not part of this list.
+    /// Falls back to <see cref="DefaultOpenPorts"/> when the spec is empty. Throws on unknown values.
+    /// </summary>
+    protected static List<(string Name, int Port)> ParseOpenPorts(string? spec)
+    {
+        if (string.IsNullOrWhiteSpace(spec))
+            spec = DefaultOpenPorts;
+
+        var result = new List<(string Name, int Port)>();
+        foreach (var raw in spec.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            string name;
+            int port;
+            if (NamedPorts.TryGetValue(raw, out var mapped))
+            {
+                name = raw.ToLowerInvariant();
+                port = mapped;
+            }
+            else if (int.TryParse(raw, out var num) && NamedPorts.Any(kv => kv.Value == num))
+            {
+                var kv = NamedPorts.First(kv => kv.Value == num);
+                name = kv.Key;
+                port = kv.Value;
+            }
+            else
+            {
+                throw new ArgumentException(
+                    $"Invalid port '{raw}'. Allowed values: soap (7047), odata (7048), dev (7049), snapshot (7083).");
+            }
+            if (!result.Any(r => r.Port == port))
+                result.Add((name, port));
+        }
+        return result;
+    }
 
     /// <summary>
     /// Parses an autostop value. Accepts:
@@ -590,7 +640,7 @@ public abstract class FkhServiceBase
     /// container's FQDN ({appName}.{region}.cloudapp.azure.com) is preserved across recreation
     /// even though the underlying public IP may change.
     /// </summary>
-    protected async Task EnsureContainerLoadBalancerServiceAsync(Kubernetes client, string appName)
+    protected async Task EnsureContainerLoadBalancerServiceAsync(Kubernetes client, string appName, string? openPortsSpec = null)
     {
         var serviceName = $"{appName}-service";
         try
@@ -603,6 +653,15 @@ public abstract class FkhServiceBase
         {
             // Not found — create it below.
         }
+
+        // Web ports 80/443 are always open; the remaining service endpoints are opt-in via openPortsSpec.
+        var ports = new List<V1ServicePort>
+        {
+            new() { Name = "http", Port = 80, TargetPort = 80 },
+            new() { Name = "https", Port = 443, TargetPort = 443 },
+        };
+        foreach (var (portName, portNumber) in ParseOpenPorts(openPortsSpec))
+            ports.Add(new() { Name = portName, Port = portNumber, TargetPort = portNumber });
 
         var service = new V1Service
         {
@@ -622,14 +681,7 @@ public abstract class FkhServiceBase
                 Type = "LoadBalancer",
                 ExternalTrafficPolicy = "Local",
                 Selector = new Dictionary<string, string> { ["app"] = appName },
-                Ports = new List<V1ServicePort>
-                {
-                    new() { Name = "http", Port = 80, TargetPort = 80 },
-                    new() { Name = "https", Port = 443, TargetPort = 443 },
-                    new() { Name = "soap", Port = 7047, TargetPort = 7047 },
-                    new() { Name = "odata", Port = 7048, TargetPort = 7048 },
-                    new() { Name = "dev", Port = 7049, TargetPort = 7049 },
-                }
+                Ports = ports
             }
         };
 
