@@ -272,6 +272,33 @@ jobs:
             terraform state rm $resource
           }
 
+      # ── Ensure AKS cluster is running ─────────────────────────────────────
+      # A stopped AKS cluster cannot be updated — Terraform apply against the
+      # cluster or its node pools fails. If the cluster already exists and is
+      # stopped, start it (and wait) before applying. Skipped on first deploy
+      # when the cluster does not yet exist.
+      - name: Ensure AKS cluster is running
+        shell: bash
+        run: |
+          AKS_RG="fkh-${{ steps.parse.outputs.deployment_name }}"
+          AKS_NAME="fkh-${{ steps.parse.outputs.deployment_name }}-aks"
+
+          if ! az aks show --resource-group "$AKS_RG" --name "$AKS_NAME" >/dev/null 2>&1; then
+            echo "AKS cluster $AKS_NAME not found — first deploy, nothing to start."
+            exit 0
+          fi
+
+          POWER_STATE=$(az aks show --resource-group "$AKS_RG" --name "$AKS_NAME" --query "powerState.code" -o tsv)
+          echo "AKS cluster $AKS_NAME power state: $POWER_STATE"
+
+          if [ "$POWER_STATE" = "Stopped" ]; then
+            echo "Cluster is stopped — starting it before applying..."
+            az aks start --resource-group "$AKS_RG" --name "$AKS_NAME"
+            echo "Cluster started."
+          else
+            echo "Cluster is already running."
+          fi
+
       # ── Bootstrap (AKS + core infra) ──────────────────────────────────────
       - name: Terraform bootstrap apply
         shell: pwsh
