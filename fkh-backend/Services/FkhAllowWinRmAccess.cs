@@ -14,6 +14,13 @@ public class FkhAllowWinRmAccess : FkhServiceBase
 
     public FkhAllowWinRmAccess(ILogger<FkhAllowWinRmAccess> logger) : base(logger) { }
 
+    private static string BuildResourceName(string prefix, string sanitizedUser, string appName)
+    {
+        var name = $"{prefix}{sanitizedUser}-{appName}";
+        if (name.Length > 63) name = name[..63];
+        return name.TrimEnd('-');
+    }
+
     public async Task<object> AllowWinRmAccessAsync(Dictionary<string, string> parameters)
     {
         var githubUsername = parameters["_githubUsername"];
@@ -24,8 +31,8 @@ public class FkhAllowWinRmAccess : FkhServiceBase
             : 2;
 
         var sanitizedUser = SanitizeAppName(githubUsername);
-        var serviceName = $"{ServicePrefix}{sanitizedUser}";
-        var policyName = $"{PolicyPrefix}{sanitizedUser}";
+        var serviceName = BuildResourceName(ServicePrefix, sanitizedUser, appName);
+        var policyName = BuildResourceName(PolicyPrefix, sanitizedUser, appName);
         var cidr = ip.Contains('/') ? ip : $"{ip}/32";
         var revokeAt = DateTimeOffset.UtcNow.AddHours(hours);
 
@@ -87,6 +94,7 @@ public class FkhAllowWinRmAccess : FkhServiceBase
                 NamespaceProperty = Namespace,
                 Labels = new Dictionary<string, string>
                 {
+                    ["app"] = appName,
                     ["fkh/purpose"] = PurposeLabel,
                     ["fkh/owner"] = sanitizedUser,
                 },
@@ -167,46 +175,47 @@ public class FkhAllowWinRmAccess : FkhServiceBase
         var githubUsername = parameters["_githubUsername"];
         var sanitizedUser = SanitizeAppName(githubUsername);
 
-        return await RevokeForUserAsync(sanitizedUser, githubUsername);
-    }
+        string? appName = null;
+        if (parameters.TryGetValue("name", out var nameVal) && !string.IsNullOrWhiteSpace(nameVal))
+            appName = ResolveAppName(parameters);
 
-    public async Task<object> RevokeForUserAsync(string sanitizedUser, string displayName)
-    {
-        var serviceName = $"{ServicePrefix}{sanitizedUser}";
-        var policyName = $"{PolicyPrefix}{sanitizedUser}";
+        var scope = appName is null ? "all containers" : $"container '{appName}'";
+        Logger.LogInformation("Revoking WinRM access for user '{User}' ({Scope}).", githubUsername, scope);
 
-        Logger.LogInformation("Revoking WinRM access for user '{User}'.", displayName);
         var client = await GetKubernetesClientAsync();
-
-        var removed = new List<string>();
-
-        try
-        {
-            await client.DeleteNamespacedServiceAsync(serviceName, Namespace);
-            removed.Add($"Service '{serviceName}'");
-        }
-        catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            // Already gone
-        }
-
-        try
-        {
-            await client.DeleteNamespacedNetworkPolicyAsync(policyName, Namespace);
-            removed.Add($"NetworkPolicy '{policyName}'");
-        }
-        catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            // Already gone
-        }
+        var removed = await RevokeResourcesAsync(client, sanitizedUser, appName);
 
         if (removed.Count == 0)
         {
-            return new { User = displayName, Message = "No WinRM access resources found.", Removed = Array.Empty<string>() };
+            return new { User = githubUsername, Message = $"No WinRM access resources found for {scope}.", Removed = Array.Empty<string>() };
         }
 
-        Logger.LogInformation("Revoked WinRM access for user '{User}': {Resources}", displayName, string.Join(", ", removed));
-        return new { User = displayName, Removed = removed };
+        Logger.LogInformation("Revoked WinRM access for user '{User}' ({Scope}): {Resources}", githubUsername, scope, string.Join(", ", removed));
+        return new { User = githubUsername, Scope = scope, Removed = removed };
+    }
+
+    private async Task<List<string>> RevokeResourcesAsync(Kubernetes client, string sanitizedUser, string? appName)
+    {
+        var selector = $"fkh/purpose={PurposeLabel},fkh/owner={sanitizedUser}";
+        if (appName is not null) selector += $",app={appName}";
+
+        var removed = new List<string>();
+
+        var services = await client.ListNamespacedServiceAsync(Namespace, labelSelector: selector);
+        foreach (var svc in services.Items)
+        {
+            await client.DeleteNamespacedServiceAsync(svc.Metadata.Name, Namespace);
+            removed.Add($"Service '{svc.Metadata.Name}'");
+        }
+
+        var policies = await client.ListNamespacedNetworkPolicyAsync(Namespace, labelSelector: selector);
+        foreach (var pol in policies.Items)
+        {
+            await client.DeleteNamespacedNetworkPolicyAsync(pol.Metadata.Name, Namespace);
+            removed.Add($"NetworkPolicy '{pol.Metadata.Name}'");
+        }
+
+        return removed;
     }
 
     public async Task CheckAndRevokeExpiredAccessAsync()
@@ -232,8 +241,9 @@ public class FkhAllowWinRmAccess : FkhServiceBase
             if (DateTimeOffset.UtcNow >= revokeAt)
             {
                 var owner = svc.Metadata.Labels != null && svc.Metadata.Labels.TryGetValue("fkh/owner", out var o) ? o : "unknown";
-                Logger.LogInformation("Auto-revoking expired WinRM access for '{Owner}'.", owner);
-                await RevokeForUserAsync(owner, owner);
+                var app = svc.Metadata.Labels != null && svc.Metadata.Labels.TryGetValue("app", out var a) ? a : null;
+                Logger.LogInformation("Auto-revoking expired WinRM access for '{Owner}' (container '{App}').", owner, app ?? "?");
+                await RevokeResourcesAsync(client, owner, app);
                 revoked++;
             }
         }

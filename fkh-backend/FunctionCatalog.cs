@@ -379,9 +379,19 @@ public static class FunctionCatalog
         new FunctionDefinition
         {
             Name = "RevokeWinRmAccess",
-            Description = "Revokes your external WinRM access immediately, removing the LoadBalancer service and network policy.",
+            Description = "Revokes your external WinRM access immediately, removing the LoadBalancer service and network policy. Revokes all your WinRM tunnels unless a specific container is named.",
             Route = "RevokeWinRmAccess",
-            Parameters = new List<FunctionParameterDefinition>()
+            Parameters = new List<FunctionParameterDefinition>
+            {
+                new()
+                {
+                    Name = "name",
+                    Type = "string",
+                    Description = "Name of the container whose WinRM tunnel to revoke. If omitted, all your WinRM tunnels are revoked.",
+                    Required = false,
+                    DefaultValue = null
+                }
+            }
         },
         new FunctionDefinition
         {
