@@ -345,6 +345,46 @@ public static class FunctionCatalog
         },
         new FunctionDefinition
         {
+            Name = "AllowWinRmAccess",
+            Description = "Opens external WinRM (PowerShell remoting, port 5986) access to a container for your IP address. Creates a temporary LoadBalancer service and network policy.",
+            Route = "AllowWinRmAccess",
+            Parameters = new List<FunctionParameterDefinition>
+            {
+                new()
+                {
+                    Name = "name",
+                    Type = "string",
+                    Description = "Name of the container to open WinRM access to.",
+                    Required = true,
+                    DefaultValue = null
+                },
+                new()
+                {
+                    Name = "ip",
+                    Type = "string",
+                    Description = "Your public IP address (e.g. 203.0.113.10). VSIX and CLI auto-detect this.",
+                    Required = false,
+                    DefaultValue = null
+                },
+                new()
+                {
+                    Name = "hours",
+                    Type = "string",
+                    Description = "Hours to keep WinRM access open (e.g. '2'). Access is auto-revoked after this period.",
+                    Required = false,
+                    DefaultValue = "2"
+                }
+            }
+        },
+        new FunctionDefinition
+        {
+            Name = "RevokeWinRmAccess",
+            Description = "Revokes your external WinRM access immediately, removing the LoadBalancer service and network policy.",
+            Route = "RevokeWinRmAccess",
+            Parameters = new List<FunctionParameterDefinition>()
+        },
+        new FunctionDefinition
+        {
             Name = "CreateImage",
             Description = "Creates (builds) an image in the Azure Container Registry from a BC artifact URL. By default returns immediately after triggering the build workflow.",
             Route = "CreateImage",
