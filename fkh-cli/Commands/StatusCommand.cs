@@ -45,7 +45,7 @@ sealed class StatusCommand : ClientCommand
 
         if (!response.IsSuccessStatusCode)
         {
-            Console.Error.WriteLine($"{Ansi.Red}Status request failed ({(int)response.StatusCode}): {body}{Ansi.Reset}");
+            Console.Error.WriteLine($"{Ansi.Red}Status request failed ({(int)response.StatusCode}) for backend {backendUrl}: {body}{Ansi.Reset}");
             return 1;
         }
 
