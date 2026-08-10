@@ -9,12 +9,14 @@ public class AutoStopFunction
     private readonly ILogger<AutoStopFunction> _logger;
     private readonly FkhAutoStop _autoStop;
     private readonly FkhAllowSqlAccess _sqlAccess;
+    private readonly FkhAllowWinRmAccess _winRmAccess;
 
-    public AutoStopFunction(ILogger<AutoStopFunction> logger, FkhAutoStop autoStop, FkhAllowSqlAccess sqlAccess)
+    public AutoStopFunction(ILogger<AutoStopFunction> logger, FkhAutoStop autoStop, FkhAllowSqlAccess sqlAccess, FkhAllowWinRmAccess winRmAccess)
     {
         _logger = logger;
         _autoStop = autoStop;
         _sqlAccess = sqlAccess;
+        _winRmAccess = winRmAccess;
     }
 
     [Function("AutoStop")]
@@ -36,6 +38,15 @@ public class AutoStopFunction
         catch (Exception ex)
         {
             _logger.LogError(ex, "SQL access auto-revoke check failed.");
+        }
+
+        try
+        {
+            await _winRmAccess.CheckAndRevokeExpiredAccessAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "WinRM access auto-revoke check failed.");
         }
     }
 }
