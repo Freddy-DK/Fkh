@@ -25,7 +25,8 @@ public class FkhAllowWinRmAccess : FkhServiceBase
     {
         var githubUsername = parameters["_githubUsername"];
         var appName = ResolveAppName(parameters);
-        var ip = parameters["ip"];
+        if (!parameters.TryGetValue("ip", out var ip) || string.IsNullOrWhiteSpace(ip))
+            throw new ArgumentException("Parameter 'ip' is required.");
         var hours = parameters.TryGetValue("hours", out var h) && double.TryParse(h, out var parsed) && parsed > 0
             ? parsed
             : 2;
