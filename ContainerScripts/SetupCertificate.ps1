@@ -276,5 +276,5 @@ net localgroup "Remote Management Users" $username /add
 # Brute-force protection for WinRM (5986) Basic-auth logons: lock the account after
 # repeated failures. Access to 5986 is already IP-restricted by the backend network policy;
 # this is defense-in-depth for the window the tunnel is open.
-# 10 bad attempts within 15 min -> account locked for 15 min (auto-unlocks).
+# 3 bad attempts within 15 min -> account locked for 15 min (auto-unlocks).
 net accounts /lockoutthreshold:3 /lockoutduration:15 /lockoutwindow:15
