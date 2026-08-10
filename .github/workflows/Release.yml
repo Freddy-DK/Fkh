@@ -24,6 +24,8 @@
 
 name: Release
 
+run-name: Branch ${{ inputs.branch || github.ref_name }}${{ inputs.beta && ' (prerelease)' || ' (stable)' }}
+
 on:
   workflow_dispatch:
     inputs:
@@ -191,6 +193,19 @@ jobs:
           Write-Host "Tag: $tagName"
           Write-Host "Beta: $isBeta"
           Write-Host "Is latest release: $isLatest"
+
+          $channel = if ($isBeta) { 'prerelease' } else { 'stable' }
+          Write-Host "::notice title=Release version::$tagName ($channel)"
+          @(
+            "## Release $tagName ($channel)",
+            "",
+            "| Field | Value |",
+            "| --- | --- |",
+            "| Version | ``$version.$nextRevision`` |",
+            "| Tag | ``$tagName`` |",
+            "| Channel | $channel |",
+            "| Latest | $isLatest |"
+          ) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
 
       - name: Create release
         shell: pwsh
