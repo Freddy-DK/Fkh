@@ -83,6 +83,16 @@
         "icon": "$(clock)"
       },
       {
+        "command": "fkh.allowSqlAccess",
+        "title": "Allow SQL Access",
+        "icon": "$(database)"
+      },
+      {
+        "command": "fkh.allowWinRmAccess",
+        "title": "Allow WinRM Access",
+        "icon": "$(terminal-powershell)"
+      },
+      {
         "command": "fkh.removeContainer",
         "title": "Remove",
         "icon": "$(trash)"
@@ -257,6 +267,16 @@
         },
         {
           "command": "fkh.setAutoStop",
+          "when": "(view == fkhContainers || view == fkhProjects) && viewItem =~ /container-(running|starting)/",
+          "group": "1_actions"
+        },
+        {
+          "command": "fkh.allowSqlAccess",
+          "when": "(view == fkhContainers || view == fkhProjects) && viewItem =~ /container-(running|starting)/",
+          "group": "1_actions"
+        },
+        {
+          "command": "fkh.allowWinRmAccess",
           "when": "(view == fkhContainers || view == fkhProjects) && viewItem =~ /container-(running|starting)/",
           "group": "1_actions"
         },

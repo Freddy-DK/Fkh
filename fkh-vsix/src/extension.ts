@@ -203,6 +203,14 @@ export function activate(context: vscode.ExtensionContext) {
       if (value === undefined || value.trim() === '') { return; }
       await invokeFunctionByName('SetAutoStop', { name: item.containerInfo.appLabel, autostop: value });
     }),
+    vscode.commands.registerCommand('fkh.allowSqlAccess', async (item: ContainerTreeItem | ProjectTreeItem) => {
+      if (!item.containerInfo) { return; }
+      await invokeFunctionByName('AllowSqlAccess', { hours: '2' });
+    }),
+    vscode.commands.registerCommand('fkh.allowWinRmAccess', async (item: ContainerTreeItem | ProjectTreeItem) => {
+      if (!item.containerInfo) { return; }
+      await invokeFunctionByName('AllowWinRmAccess', { name: item.containerInfo.appLabel, hours: '2' });
+    }),
     vscode.commands.registerCommand('fkh.removeContainer', async (item: ContainerTreeItem | ProjectTreeItem) => {
       if (!item.containerInfo) { return; }
       const name = item.containerInfo.appLabel;
