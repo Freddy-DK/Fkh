@@ -519,6 +519,63 @@ public static class FunctionCatalog
         },
         new FunctionDefinition
         {
+            Name = "RunTests",
+            Description = "Runs tests from a published test app inside a Business Central container.",
+            Route = "RunTests",
+            Parameters = new List<FunctionParameterDefinition>
+            {
+                new()
+                {
+                    Name = "name",
+                    Type = "string",
+                    Description = "Name of the container in which to run tests.",
+                    Required = true,
+                    DefaultValue = null
+                },
+                new()
+                {
+                    Name = "tenant",
+                    Type = "string",
+                    Description = "Business Central tenant.",
+                    Required = false,
+                    DefaultValue = "default"
+                },
+                new()
+                {
+                    Name = "extensionId",
+                    Type = "string",
+                    Description = "ID of the published test app whose tests should run.",
+                    Required = true,
+                    DefaultValue = null
+                },
+                new()
+                {
+                    Name = "appName",
+                    Type = "string",
+                    Description = "Optional test app name used for validation and reporting.",
+                    Required = false,
+                    DefaultValue = null
+                },
+                new()
+                {
+                    Name = "testCodeunitRange",
+                    Type = "string",
+                    Description = "Optional Business Central filter selecting test codeunit IDs, for example '50100|50105..50110'.",
+                    Required = false,
+                    DefaultValue = null
+                },
+                new()
+                {
+                    Name = "timeoutMinutes",
+                    Type = "string",
+                    Description = "Hard timeout for the test run inside the container, between 1 and 120 minutes.",
+                    Required = false,
+                    DefaultValue = "30"
+                }
+            }
+        },
+        new FunctionDefinition
+        {
             Name = "ImportTestToolkit",
             Description = "Imports the Business Central test toolkit apps into a running container.",
             Route = "ImportTestToolkit",

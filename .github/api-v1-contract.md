@@ -156,6 +156,7 @@ Functions that accept file-type parameters use **`POST /<Route>`** with `multipa
 | PublishApp | `POST /PublishApp` | multipart | No | Publishes a `.app` file to a running container |
 | InvokeSqlCmd | `POST /InvokeSqlCmd` | JSON | No | Executes a SQL statement against a container's database |
 | InvokeScript | `POST /InvokeScript` | JSON or multipart | No | Runs a PowerShell script inside a container (inline or file) |
+| RunTests | `POST /RunTests` | JSON | No | Runs AL tests inside a container and returns JUnit |
 | GetContainerLog | `POST /GetContainerLog` | JSON | No | Returns container logs (tail N lines) |
 | GetContainerEventLog | `POST /GetContainerEventLog` | JSON | No | Downloads the Windows Application event log (.evtx) |
 | CopyFileFromContainer | `POST /CopyFileFromContainer` | JSON | No | Downloads a file from a container (wildcard supported) |
@@ -353,6 +354,23 @@ No parameters.
 | `name` | string | **yes** | — | Container name |
 | `command` | string | no | — | Inline PowerShell script (use this or `scriptFile`) |
 | `scriptFile` | file | no | — | PowerShell script file (use this or `command`) |
+
+### RunTests
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `name` | string | **yes** | — | Container name |
+| `tenant` | string | no | `default` | Business Central tenant |
+| `extensionId` | GUID | **yes** | — | Published test app ID used to select tests |
+| `appName` | string | no | — | Expected test app name for validation and reporting |
+| `testCodeunitRange` | string | no | — | Business Central filter selecting test codeunit IDs, for example `50100|50105..50110` |
+| `timeoutMinutes` | number | no | `30` | Hard timeout for the test run inside the container (1-120) |
+
+The authenticated caller must be authorized for the target container. While the
+detached operation is running, the endpoint returns `202 Accepted` with a
+`Retry-After` header. A completed request returns counts derived from JUnit,
+`outcome` (`passed` or `failed`), bounded logs, and `junitBase64`. Missing,
+malformed, empty, zero-test, or oversized JUnit is an infrastructure failure.
 
 ### GetContainerLog
 
