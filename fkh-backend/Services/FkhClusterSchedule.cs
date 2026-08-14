@@ -218,12 +218,18 @@ public class FkhClusterSchedule
     private async Task<DayWindow?> GetWindowAsync(
         UptimeConfig cfg, TimeZoneInfo tz, DateOnly localDate)
     {
-        if (await IsExcludedAsync(cfg, localDate))
-            return null;
+        // Missing/empty day or excluded holiday => cluster should be OFF all day. Model this as an
+        // implicit stop edge at local midnight so the edge-triggered logic can shut down.
+        static DateTimeOffset ToMidnightUtc(DateOnly d, TimeZoneInfo zone) =>
+            new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(d.ToDateTime(TimeOnly.MinValue), zone), TimeSpan.Zero);
 
-        if (cfg.Weekdays is null || !cfg.Weekdays.TryGetValue(DayKeys[(int)localDate.DayOfWeek], out var range)
+        if (await IsExcludedAsync(cfg, localDate))
+            return new DayWindow(null, ToMidnightUtc(localDate, tz));
+
+        if (cfg.Weekdays is null
+            || !cfg.Weekdays.TryGetValue(DayKeys[(int)localDate.DayOfWeek], out var range)
             || string.IsNullOrWhiteSpace(range))
-            return null;
+            return new DayWindow(null, ToMidnightUtc(localDate, tz));
 
         if (!TryParseRange(range, out var startTime, out var stopTime))
             return null;
