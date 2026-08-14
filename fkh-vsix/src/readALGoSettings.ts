@@ -545,10 +545,10 @@ async function scanForAppJson(folder: vscode.Uri, out: vscode.Uri[], depth: numb
     return;
   }
   for (const [name, type] of entries) {
-    if (type === vscode.FileType.Directory) {
+    if (type & vscode.FileType.Directory) {
       if (name.startsWith('.') || appScanExcludedDirs.has(name.toLowerCase())) { continue; }
       await scanForAppJson(vscode.Uri.joinPath(folder, name), out, depth + 1);
-    } else if (name.toLowerCase() === 'app.json') {
+    } else if ((type & vscode.FileType.File) && name.toLowerCase() === 'app.json') {
       out.push(vscode.Uri.joinPath(folder, name));
     }
   }
