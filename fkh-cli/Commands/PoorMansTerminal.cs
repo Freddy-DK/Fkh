@@ -24,9 +24,13 @@ sealed class PoorMansTerminal
         Console.WriteLine($"{Ansi.Dim}Type 'exit' or 'quit' to close.{Ansi.Reset}");
         Console.WriteLine();
 
-        var initResult = await InvokeAsync(". 'C:\\run\\prompt.ps1' -silent; $PWD.Path");
-        if (initResult is not null && !string.IsNullOrWhiteSpace(initResult.Output))
-            _currentPath = initResult.Output.Trim();
+        var initResult = await InvokeAsync(". 'C:\\run\\prompt.ps1' -silent; Write-Output \"@@FKH_PWD:$($PWD.Path)\"");
+        if (initResult is not null)
+        {
+            var initPath = ExtractPwd(initResult.Output);
+            if (!string.IsNullOrWhiteSpace(initPath))
+                _currentPath = initPath;
+        }
 
         while (true)
         {
@@ -74,7 +78,6 @@ sealed class PoorMansTerminal
             }
 
             _currentPath = newPath;
-
             var output = string.Join('\n', displayLines).TrimEnd();
             if (!string.IsNullOrEmpty(output))
                 Console.WriteLine(output);
@@ -84,6 +87,17 @@ sealed class PoorMansTerminal
         }
 
         return 0;
+    }
+
+    private static string? ExtractPwd(string output)
+    {
+        foreach (var line in output.Split('\n'))
+        {
+            var trimmedLine = line.TrimEnd('\r');
+            if (trimmedLine.StartsWith("@@FKH_PWD:", StringComparison.Ordinal))
+                return trimmedLine["@@FKH_PWD:".Length..].Trim();
+        }
+        return null;
     }
 
     private async Task<InvokeResult?> InvokeAsync(string command)
