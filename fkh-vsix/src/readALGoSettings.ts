@@ -510,6 +510,144 @@ function postProcessSettings(settings: Record<string, unknown>, project: string)
   }
 }
 
+// Directory names skipped when scanning a project for app.json source files.
+const appScanExcludedDirs = new Set([
+  '.git', '.github', '.al-go', '.alpackages', '.altemplates',
+  '.snapshots', '.vscode', 'node_modules', 'bin', 'obj',
+]);
+
+function parseVersion(value: unknown): number[] | undefined {
+  if (typeof value !== 'string' || !value.trim()) { return undefined; }
+  const nums: number[] = [];
+  for (const part of value.trim().split('.')) {
+    const n = Number(part);
+    if (!Number.isInteger(n) || n < 0) { return undefined; }
+    nums.push(n);
+  }
+  return nums.length > 0 ? nums : undefined;
+}
+
+function compareVersions(a: number[], b: number[]): number {
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    const diff = (a[i] ?? 0) - (b[i] ?? 0);
+    if (diff !== 0) { return diff < 0 ? -1 : 1; }
+  }
+  return 0;
+}
+
+async function scanForAppJson(folder: vscode.Uri, out: vscode.Uri[], depth: number): Promise<void> {
+  if (depth > 6) { return; }
+  let entries: [string, vscode.FileType][];
+  try {
+    entries = await vscode.workspace.fs.readDirectory(folder);
+  } catch {
+    return;
+  }
+  for (const [name, type] of entries) {
+    if (type === vscode.FileType.Directory) {
+      if (name.startsWith('.') || appScanExcludedDirs.has(name.toLowerCase())) { continue; }
+      await scanForAppJson(vscode.Uri.joinPath(folder, name), out, depth + 1);
+    } else if (name.toLowerCase() === 'app.json') {
+      out.push(vscode.Uri.joinPath(folder, name));
+    }
+  }
+}
+
+async function collectAppJsonUris(projectFolder: vscode.Uri, settings: Record<string, unknown>): Promise<vscode.Uri[]> {
+  const explicitFolders: string[] = [];
+  for (const key of ['appFolders', 'testFolders', 'bcptTestFolders']) {
+    const value = getPropertyIgnoreCase(settings, key);
+    if (Array.isArray(value)) {
+      explicitFolders.push(...value.filter((f): f is string => typeof f === 'string' && f.trim() !== ''));
+    }
+  }
+
+  const uris: vscode.Uri[] = [];
+  if (explicitFolders.length > 0) {
+    for (const folder of explicitFolders) {
+      const parts = folder.split(/[\\/]+/).filter(p => p && p !== '.');
+      const uri = vscode.Uri.joinPath(projectFolder, ...parts, 'app.json');
+      if (await uriExists(uri)) { uris.push(uri); }
+    }
+    return uris;
+  }
+
+  await scanForAppJson(projectFolder, uris, 0);
+  return uris;
+}
+
+/**
+ * Computes the highest `application` dependency across the project's app.json files,
+ * mirroring AL-Go's AnalyzeRepo. Seeded with the `applicationDependency` setting.
+ * Throws if an app.json is missing the required `application` property.
+ * Returns the version as [major, minor, ...], or undefined if none could be determined.
+ */
+export async function computeApplicationDependency(
+  projectFolder: vscode.Uri,
+  settings: Record<string, unknown>,
+): Promise<number[] | undefined> {
+  let max = parseVersion(getString(settings, 'applicationDependency'));
+
+  for (const uri of await collectAppJsonUris(projectFolder, settings)) {
+    let appJson: Record<string, unknown> | undefined;
+    try {
+      appJson = await readSettingsFile(uri);
+    } catch {
+      continue;
+    }
+    if (!appJson) { continue; }
+
+    const appVer = parseVersion(getPropertyIgnoreCase(appJson, 'application'));
+    if (!appVer) {
+      const relative = uri.path.startsWith(projectFolder.path)
+        ? uri.path.substring(projectFolder.path.length).replace(/^\/+/, '')
+        : uri.path;
+      throw new Error(`'${relative}' is missing the required 'application' property.`);
+    }
+    if (!max || compareVersions(appVer, max) > 0) { max = appVer; }
+  }
+
+  return max;
+}
+
+/**
+ * Resolves an artifact shorthand whose version segment is `*` by substituting the
+ * major.minor of the project's computed Application dependency, matching AL-Go's
+ * DetermineArtifactUrl. Non-`*` and full-URL artifacts are returned unchanged.
+ */
+export async function resolveArtifactSetting(
+  artifact: string,
+  projectFolder: vscode.Uri,
+  settings: Record<string, unknown>,
+): Promise<string> {
+  if (!artifact || artifact.startsWith('https://')) { return artifact; }
+
+  // Shorthand format: storageAccount/type/version/country/select
+  const segments = `${artifact}/////`.split('/');
+  if (segments[2] !== '*') { return artifact; }
+
+  const applicationDependency = await computeApplicationDependency(projectFolder, settings);
+  if (!applicationDependency) {
+    throw new Error(
+      `Artifact setting '${artifact}' uses version '*', but no Application dependency could be determined from app.json in the project.`,
+    );
+  }
+
+  segments[2] = `${applicationDependency[0] ?? 0}.${applicationDependency[1] ?? 0}`;
+  return [segments[0], segments[1], segments[2], segments[3], segments[4]].join('/').replace(/\/+$/, '');
+}
+
+/**
+ * Returns the absolute folder for an AL-Go project. The root project ('.' or empty)
+ * resolves to the base (git root) folder.
+ */
+export function getProjectFolder(baseFolder: vscode.Uri, project: string): vscode.Uri {
+  if (!project || project === '.') { return baseFolder; }
+  const parts = project.split(/[\\/]+/).filter(p => p && p !== '.');
+  return vscode.Uri.joinPath(baseFolder, ...parts);
+}
+
 function getDefaultSettings(repoName: string): Record<string, unknown> {
   return {
     type: 'PTE',
