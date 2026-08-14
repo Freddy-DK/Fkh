@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { createReadSettingsOptions, readSettings, getRepoName, getProjects } from './readALGoSettings';
+import { createReadSettingsOptions, readSettings, getRepoName, getProjects, resolveArtifactSetting, getProjectFolder } from './readALGoSettings';
 import { ProjectsTreeProvider, ProjectTreeItem, ContainersTreeProvider, ContainerTreeItem, ImagesTreeProvider, ImageTreeItem, VMsTreeProvider, VMTreeItem } from './containersTreeProvider';
 import { updateLaunchJsonAfterCreate, removeLaunchJsonAfterRemove } from './updateLaunchJson';
 import { PROTOCOL_VERSION, CLIENT_APP } from './protocol';
@@ -1043,6 +1043,17 @@ async function createContainer(project?: string): Promise<void> {
   const artifact = String(settings['artifact'] ?? '');
   const country = String(settings['country'] ?? 'us');
 
+  // Resolve a '*' artifact version to major.minor of the project's Application dependency
+  // (scanned from app.json), mirroring AL-Go's DetermineArtifactUrl.
+  let resolvedArtifact = artifact;
+  try {
+    const projectFolder = getProjectFolder(options.baseFolder, options.project);
+    resolvedArtifact = await resolveArtifactSetting(artifact, projectFolder, settings);
+  } catch (err) {
+    vscode.window.showErrorMessage(`Fkh: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+
   // Update the cached fkh settings from the freshly-read AL-Go settings
   const fkhSettings = settings['fkh'];
   cachedFkhSettings = (fkhSettings && typeof fkhSettings === 'object') ? fkhSettings as Record<string, string> : undefined;
@@ -1061,11 +1072,11 @@ async function createContainer(project?: string): Promise<void> {
   outputChannel.appendLine(`  environmentName: ${options.environmentName || '(empty)'}`);
   outputChannel.appendLine(`  customSettings: ${options.customSettings || '(empty)'}`);
 
-  const artifactUrl = artifact || `///${country}/latest`;
+  const artifactUrl = resolvedArtifact || `///${country}/latest`;
 
   outputChannel.appendLine('--- Resolved Settings ---');
   outputChannel.appendLine(`  Country: ${country}`);
-  outputChannel.appendLine(`  Artifact: ${artifactUrl}${!artifact ? ' (defaulted)' : ''}`);
+  outputChannel.appendLine(`  Artifact: ${artifactUrl}${!resolvedArtifact ? ' (defaulted)' : ''}`);
   outputChannel.show(true);
 
   const projectContext = options.project ? `${options.repoName}/${options.project}` : options.repoName;
