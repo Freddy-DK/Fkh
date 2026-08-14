@@ -591,11 +591,7 @@ export async function computeApplicationDependency(
 
   for (const uri of await collectAppJsonUris(projectFolder, settings)) {
     let appJson: Record<string, unknown> | undefined;
-    try {
-      appJson = await readSettingsFile(uri);
-    } catch {
-      continue;
-    }
+    appJson = await readSettingsFile(uri);
     if (!appJson) { continue; }
 
     const appVer = parseVersion(getPropertyIgnoreCase(appJson, 'application'));
