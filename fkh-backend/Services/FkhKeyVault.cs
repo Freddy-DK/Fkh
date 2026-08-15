@@ -62,7 +62,7 @@ public class FkhKeyVault : FkhServiceBase
     /// </summary>
     private (string Name, string SecretName, string Scope, string GithubUsername) ResolveSecretName(Dictionary<string, string> parameters)
     {
-        var name = parameters["name"];
+        var name = parameters["name"].Trim();
         var githubUsername = parameters.GetValueOrDefault("_githubUsername", "unknown");
         var isPersonal = parameters.TryGetValue("personal", out var personalVal)
             && string.Equals(personalVal, "true", StringComparison.OrdinalIgnoreCase);
@@ -71,8 +71,8 @@ public class FkhKeyVault : FkhServiceBase
         var isOidc = parameters.TryGetValue("_isOidc", out var oidcVal)
             && string.Equals(oidcVal, "true", StringComparison.OrdinalIgnoreCase);
 
-        if (name.Contains('-'))
-            throw new ArgumentException("Parameter 'name' may not contain a dash.");
+        if (name.Length == 0 || name.Any(c => !char.IsLetterOrDigit(c)))
+            throw new ArgumentException("Parameter 'name' must contain only letters and digits.");
 
         if (isPersonal && isOidc)
             throw new ArgumentException("Personal secrets are not available with OIDC authentication (there is no personal user). Omit --personal to use organization secrets.");
