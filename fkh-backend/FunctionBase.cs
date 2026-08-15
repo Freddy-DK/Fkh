@@ -285,6 +285,7 @@ public abstract class FunctionBase
         parameters["_githubUsername"] = auth.Username;
         parameters["_isAdmin"] = auth.IsAdmin.ToString();
         parameters["_isSupport"] = auth.IsSupport.ToString();
+        parameters["_isOidc"] = auth.IsOidc.ToString();
         foreach (var kv in internalParams)
             parameters[kv.Key] = kv.Value;
 
@@ -460,6 +461,7 @@ public abstract class FunctionBase
         parametersResult.Parameters!["_githubUsername"] = auth.Username;
         parametersResult.Parameters!["_isAdmin"] = auth.IsAdmin.ToString();
         parametersResult.Parameters!["_isSupport"] = auth.IsSupport.ToString();
+        parametersResult.Parameters!["_isOidc"] = auth.IsOidc.ToString();
 
         // Resolve artifact shorthand (e.g. "///us/latest") to a full URL
         var artifactError = await ResolveArtifactAsync(req, logger, parametersResult.Parameters);
@@ -497,6 +499,7 @@ public abstract class FunctionBase
         parametersResult.Parameters!["_githubUsername"] = auth.Username;
         parametersResult.Parameters!["_isAdmin"] = auth.IsAdmin.ToString();
         parametersResult.Parameters!["_isSupport"] = auth.IsSupport.ToString();
+        parametersResult.Parameters!["_isOidc"] = auth.IsOidc.ToString();
 
         var artifactError = await ResolveArtifactAsync(req, logger, parametersResult.Parameters);
         if (artifactError is not null) return artifactError;
@@ -572,6 +575,7 @@ public abstract class FunctionBase
         public required string Username { get; init; }
         public required bool IsAdmin { get; init; }
         public required bool IsSupport { get; init; }
+        public required bool IsOidc { get; init; }
         public required string ClientIp { get; init; }
         public required FunctionDefinition Function { get; init; }
     }
@@ -633,6 +637,7 @@ public abstract class FunctionBase
         string username;
         var isAdmin = false;
         var isSupport = false;
+        var isOidc = false;
 
         if (AdoOidcService.IsAdoOidcToken(token))
         {
@@ -647,6 +652,7 @@ public abstract class FunctionBase
 
             username = GetAdoOidcUsername(subject);
             isAdmin = true;
+            isOidc = true;
             logger.LogInformation("Received {Operation} request from ADO OIDC caller: {Subject} (username: {Username}, admin: true)", operationName, subject, username);
         }
         else if (GitHubOidcService.IsOidcToken(token))
@@ -662,6 +668,7 @@ public abstract class FunctionBase
 
             username = repository.Replace('/', '-');
             isAdmin = true;
+            isOidc = true;
             logger.LogInformation("Received {Operation} request from OIDC caller: {Repository} (username: {Username}, admin: true)", operationName, repository, username);
         }
         else
@@ -700,6 +707,7 @@ public abstract class FunctionBase
             Username = username,
             IsAdmin = isAdmin,
             IsSupport = isSupport,
+            IsOidc = isOidc,
             ClientIp = clientIp,
             Function = function
         }, null);

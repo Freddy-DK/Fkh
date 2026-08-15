@@ -1358,6 +1358,64 @@ public static class FunctionCatalog
                     DefaultValue = "false"
                 }
             }
+        },
+        new FunctionDefinition
+        {
+            Name = "GetSecret",
+            Description = "Gets a secret value from the deployment's Key Vault by name. Organization secrets (prefixed with the org name) are admin only; use --personal to read your own secrets (prefixed with your GitHub username). Returns an empty string if the secret does not exist.",
+            Route = "GetSecret",
+            Parameters = new List<FunctionParameterDefinition>
+            {
+                new()
+                {
+                    Name = "name",
+                    Type = "string",
+                    Description = "Name of the secret to read from the Key Vault. May not contain a dash.",
+                    Required = true,
+                    DefaultValue = null
+                },
+                new()
+                {
+                    Name = "personal",
+                    Type = "boolean",
+                    Description = "Read a personal secret scoped to your GitHub username instead of an organization secret.",
+                    Required = false,
+                    DefaultValue = "false"
+                }
+            }
+        },
+        new FunctionDefinition
+        {
+            Name = "SetSecret",
+            Description = "Adds or updates a secret in the deployment's Key Vault. Organization secrets (prefixed with the org name) are admin only; use --personal to set your own secrets (prefixed with your GitHub username).",
+            Route = "SetSecret",
+            Parameters = new List<FunctionParameterDefinition>
+            {
+                new()
+                {
+                    Name = "name",
+                    Type = "string",
+                    Description = "Name of the secret to set in the Key Vault. May not contain a dash.",
+                    Required = true,
+                    DefaultValue = null
+                },
+                new()
+                {
+                    Name = "secret",
+                    Type = "string",
+                    Description = "The secret value to store (plain text).",
+                    Required = true,
+                    DefaultValue = null
+                },
+                new()
+                {
+                    Name = "personal",
+                    Type = "boolean",
+                    Description = "Set a personal secret scoped to your GitHub username instead of an organization secret.",
+                    Required = false,
+                    DefaultValue = "false"
+                }
+            }
         }
     };
 

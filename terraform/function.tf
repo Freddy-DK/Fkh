@@ -78,6 +78,7 @@ locals {
     GITHUB_REPO_NAME                       = split("/", var.create_images_repo)[1]
     DBS_STORAGE_ACCOUNT_NAME               = azurerm_storage_account.dbs.name
     LOG_ANALYTICS_WORKSPACE_ID             = azurerm_log_analytics_workspace.this.id
+    KEYVAULT_URI                           = azurerm_key_vault.this.vault_uri
     CONTAINER_DEFAULT_CPU                  = var.container_default_cpu
     CONTAINER_DEFAULT_MEMORY               = var.container_default_memory
     AAD_TENANT_ID                          = var.tenant_id
