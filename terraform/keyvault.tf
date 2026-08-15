@@ -6,7 +6,7 @@
 # (people with portal access can be granted roles separately in Azure).
 
 resource "azurerm_key_vault" "this" {
-  name                      = "${local.product_prefix}-${lower(local.storage_account_org_id)}-kv"
+  name                      = "${local.product_prefix}${lower(local.storage_account_org_id)}kv"
   resource_group_name       = azurerm_resource_group.this.name
   location                  = azurerm_resource_group.this.location
   tenant_id                 = var.tenant_id
