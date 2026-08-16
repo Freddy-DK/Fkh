@@ -83,7 +83,7 @@ public class FkhKeyVault : FkhServiceBase
     {
         var name = ValidateName(parameters);
         var githubUsername = parameters.GetValueOrDefault("_githubUsername", "unknown");
-        var secret = parameters["secret"];
+        var secret = parameters.GetValueOrDefault("secret", "");
         var isAllUsers = IsTrue(parameters, "allusers");
         var isAdmin = IsTrue(parameters, "_isAdmin");
         var isOidc = IsTrue(parameters, "_isOidc");
@@ -97,10 +97,37 @@ public class FkhKeyVault : FkhServiceBase
         var prefix = NormalizePrefix(isAllUsers ? _orgName : githubUsername);
         var secretName = $"{prefix}-{name}";
         var scope = isAllUsers ? "organization" : "personal";
-        Logger.LogInformation("User '{User}' setting {Scope} secret '{Secret}' in Key Vault.", githubUsername, scope, secretName);
-
         var client = CreateClient();
-        await client.SetSecretAsync(secretName, secret);
+
+        // An empty value removes the secret.
+        if (string.IsNullOrEmpty(secret))
+        {
+            Logger.LogInformation("User '{User}' removing {Scope} secret '{Secret}' from Key Vault.", githubUsername, scope, secretName);
+            try
+            {
+                await client.StartDeleteSecretAsync(secretName);
+                return new { Name = name, Message = $"Secret '{name}' removed." };
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                return new { Name = name, Message = $"Secret '{name}' does not exist." };
+            }
+        }
+
+        Logger.LogInformation("User '{User}' setting {Scope} secret '{Secret}' in Key Vault.", githubUsername, scope, secretName);
+        try
+        {
+            await client.SetSecretAsync(secretName, secret);
+        }
+        catch (RequestFailedException ex) when (ex.Status == 409)
+        {
+            // The secret name is in a soft-deleted (recoverable) state and cannot be
+            // reused until recovered or purged. Recover it, then overwrite the value.
+            Logger.LogInformation("Secret '{Secret}' is soft-deleted; recovering before set.", secretName);
+            var recover = await client.StartRecoverDeletedSecretAsync(secretName);
+            await recover.WaitForCompletionAsync();
+            await client.SetSecretAsync(secretName, secret);
+        }
         return new { Name = name, Message = $"Secret '{name}' set." };
     }
 

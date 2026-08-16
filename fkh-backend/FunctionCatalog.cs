@@ -1379,7 +1379,7 @@ public static class FunctionCatalog
         new FunctionDefinition
         {
             Name = "SetSecret",
-            Description = "Adds or updates a secret in the deployment's Key Vault. By default sets a personal secret scoped to your GitHub username (prefixed with your username); use --allusers to set an organization-wide secret (prefixed with the org name), which is admin only.",
+            Description = "Adds, updates, or removes a secret in the deployment's Key Vault. By default sets a personal secret scoped to your GitHub username (prefixed with your username); use --allusers to set an organization-wide secret (prefixed with the org name), which is admin only. Pass an empty secret value to remove the secret.",
             Route = "SetSecret",
             Parameters = new List<FunctionParameterDefinition>
             {
@@ -1395,8 +1395,8 @@ public static class FunctionCatalog
                 {
                     Name = "secret",
                     Type = "string",
-                    Description = "The secret value to store (plain text).",
-                    Required = true,
+                    Description = "The secret value to store (plain text). Pass an empty value to remove the secret.",
+                    Required = false,
                     DefaultValue = null
                 },
                 new()

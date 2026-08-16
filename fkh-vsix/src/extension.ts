@@ -494,13 +494,19 @@ async function promptForParameters(
   // Apply cached AL-Go fkh settings for this function
   if (cachedFkhSettings) {
     const prefix = `${definition.name}.`;
+    const requiredParams = new Set(
+      definition.parameters.filter(p => p.required).map(p => p.name.toLowerCase())
+    );
     for (const [key, value] of Object.entries(cachedFkhSettings)) {
       if (key.startsWith(prefix)) {
         const paramKey = key.substring(prefix.length);
         const strValue = String(value ?? '').trim();
-        if (paramKey.endsWith('?')) {
-          // Trailing ? means show the parameter with value as default (don't override explicit prefilledDefaults)
-          const cleanKey = paramKey.slice(0, -1);
+        // Required params are always shown (treated like a trailing '?') so a hard
+        // override to a missing secret leaves an empty, required field to fill in.
+        const cleanKey = paramKey.endsWith('?') ? paramKey.slice(0, -1) : paramKey;
+        const asDefault = paramKey.endsWith('?') || requiredParams.has(cleanKey.toLowerCase());
+        if (asDefault) {
+          // Show the parameter with value as default (don't override explicit prefilledDefaults)
           if (!(cleanKey in prefilledDefaults) && strValue) {
             prefilledDefaults[cleanKey] = strValue;
           }
