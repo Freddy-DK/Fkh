@@ -1362,7 +1362,7 @@ public static class FunctionCatalog
         new FunctionDefinition
         {
             Name = "GetSecret",
-            Description = "Gets a secret value from the deployment's Key Vault by name. Organization secrets (prefixed with the org name) are admin only; use --personal to read your own secrets (prefixed with your GitHub username). Returns an empty string if the secret does not exist.",
+            Description = "Gets a secret value from the deployment's Key Vault by name. Reads your personal secret (prefixed with your GitHub username) if it exists, otherwise falls back to the organization secret (prefixed with the org name). Returns an empty string if neither exists.",
             Route = "GetSecret",
             Parameters = new List<FunctionParameterDefinition>
             {
@@ -1373,21 +1373,13 @@ public static class FunctionCatalog
                     Description = "Name of the secret to read from the Key Vault. May not contain a dash.",
                     Required = true,
                     DefaultValue = null
-                },
-                new()
-                {
-                    Name = "personal",
-                    Type = "boolean",
-                    Description = "Read a personal secret scoped to your GitHub username instead of an organization secret.",
-                    Required = false,
-                    DefaultValue = "false"
                 }
             }
         },
         new FunctionDefinition
         {
             Name = "SetSecret",
-            Description = "Adds or updates a secret in the deployment's Key Vault. Organization secrets (prefixed with the org name) are admin only; use --personal to set your own secrets (prefixed with your GitHub username).",
+            Description = "Adds or updates a secret in the deployment's Key Vault. By default sets a personal secret scoped to your GitHub username (prefixed with your username); use --allusers to set an organization-wide secret (prefixed with the org name), which is admin only.",
             Route = "SetSecret",
             Parameters = new List<FunctionParameterDefinition>
             {
@@ -1409,9 +1401,9 @@ public static class FunctionCatalog
                 },
                 new()
                 {
-                    Name = "personal",
+                    Name = "allusers",
                     Type = "boolean",
-                    Description = "Set a personal secret scoped to your GitHub username instead of an organization secret.",
+                    Description = "Set an organization-wide secret scoped to the org name instead of a personal secret. Admin only.",
                     Required = false,
                     DefaultValue = "false"
                 }

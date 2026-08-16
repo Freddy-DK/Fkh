@@ -289,6 +289,10 @@ public abstract class FunctionBase
         foreach (var kv in internalParams)
             parameters[kv.Key] = kv.Value;
 
+        // Substitute @secretName@ parameter values with Key Vault secrets
+        var secretError = await ResolveSecretReferencesAsync(req, logger, parameters);
+        if (secretError is not null) return secretError;
+
         // ── Execute operation ─────────────────────────────────────────────────────
         return await RunOperationAsync(req, logger, operationName, auth.Username,
             () => aksOperation(parameters, formFiles));
@@ -467,6 +471,10 @@ public abstract class FunctionBase
         var artifactError = await ResolveArtifactAsync(req, logger, parametersResult.Parameters);
         if (artifactError is not null) return artifactError;
 
+        // Substitute @secretName@ parameter values with Key Vault secrets
+        var secretError = await ResolveSecretReferencesAsync(req, logger, parametersResult.Parameters);
+        if (secretError is not null) return secretError;
+
         // ── Execute operation ─────────────────────────────────────────────────────
         return await RunOperationAsync(req, logger, operationName, auth.Username,
             () => aksOperation(parametersResult.Parameters!));
@@ -503,6 +511,10 @@ public abstract class FunctionBase
 
         var artifactError = await ResolveArtifactAsync(req, logger, parametersResult.Parameters);
         if (artifactError is not null) return artifactError;
+
+        // Substitute @secretName@ parameter values with Key Vault secrets
+        var secretError = await ResolveSecretReferencesAsync(req, logger, parametersResult.Parameters);
+        if (secretError is not null) return secretError;
 
         // Fire the operation on a background thread — do not await
         var parameters = parametersResult.Parameters!;
@@ -840,6 +852,62 @@ public abstract class FunctionBase
         {
             return Respond(req, HttpStatusCode.BadRequest, $"Failed to resolve artifact '{rawArtifact}': {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Substitutes any parameter whose value is a secret reference of the form
+    /// <c>@secretName@</c> with the matching Key Vault secret (personal→org fallback).
+    /// Fails the request if a referenced secret does not exist. Internal (_) parameters
+    /// are never substituted.
+    /// </summary>
+    private static async Task<HttpResponseData?> ResolveSecretReferencesAsync(
+        HttpRequestData req,
+        ILogger logger,
+        Dictionary<string, string> parameters)
+    {
+        var references = parameters
+            .Where(kv => !kv.Key.StartsWith('_') && IsSecretReference(kv.Value, out _))
+            .ToList();
+        if (references.Count == 0)
+            return null;
+
+        var githubUsername = parameters.GetValueOrDefault("_githubUsername", "unknown");
+        var isOidc = string.Equals(parameters.GetValueOrDefault("_isOidc"), "true", StringComparison.OrdinalIgnoreCase);
+
+        FkhKeyVault? keyVault = null;
+        foreach (var kv in references)
+        {
+            IsSecretReference(kv.Value, out var secretName);
+            try
+            {
+                keyVault ??= FkhKeyVault.Create(logger);
+                var value = await keyVault.TryGetSecretValueAsync(secretName!, githubUsername, isOidc);
+                if (value is null)
+                    return Respond(req, HttpStatusCode.BadRequest, $"No secret found named '{secretName}' (referenced by parameter '{kv.Key}').");
+
+                parameters[kv.Key] = value;
+                logger.LogInformation("Resolved secret reference for parameter '{Param}' from secret '{Secret}'.", kv.Key, secretName);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to resolve secret '{Secret}' for parameter '{Param}'.", secretName, kv.Key);
+                return Respond(req, HttpStatusCode.BadRequest, $"Failed to resolve secret '{secretName}' for parameter '{kv.Key}': {ex.Message}");
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Returns true if <paramref name="value"/> is a secret reference (<c>@name@</c>)
+    /// and outputs the alphanumeric secret name.
+    /// </summary>
+    private static bool IsSecretReference(string? value, out string? secretName)
+    {
+        secretName = null;
+        if (string.IsNullOrEmpty(value) || value.Length < 3) return false;
+        if (value[0] != '@' || value[^1] != '@') return false;
+        secretName = value[1..^1];
+        return true;
     }
 
     /// <summary>

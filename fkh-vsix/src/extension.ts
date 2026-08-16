@@ -361,6 +361,37 @@ async function getPublicIp(): Promise<string | undefined> {
   return undefined;
 }
 
+// Returns the secret name if value is a secret reference (@name@), otherwise undefined.
+function parseSecretReference(value: string | undefined): string | undefined {
+  if (!value || value.length < 3) { return undefined; }
+  if (value[0] !== '@' || value[value.length - 1] !== '@') { return undefined; }
+  const inner = value.slice(1, -1);
+  if (inner.length === 0 || !/^[a-zA-Z0-9]+$/.test(inner)) { return undefined; }
+  return inner;
+}
+
+// Resolves a secret value via the backend GetSecret route. Returns an empty string
+// when the secret does not exist or cannot be fetched (never throws).
+async function fetchSecretValue(secretName: string, baseUrl: string, accessToken: string): Promise<string> {
+  try {
+    const response = await fetch(`${baseUrl}/GetSecret`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+        'X-Fkh-Protocol-Version': String(PROTOCOL_VERSION),
+        'X-Fkh-Client': CLIENT_APP,
+      },
+      body: JSON.stringify({ parameters: { name: secretName } }),
+    });
+    if (!response.ok) { return ''; }
+    const result = await response.json() as { secret?: string };
+    return result.secret ?? '';
+  } catch {
+    return '';
+  }
+}
+
 async function getGitHubSession(): Promise<vscode.AuthenticationSession | undefined> {
   try {
     // Try to get an existing session silently first (works in vscode.dev where
@@ -570,6 +601,27 @@ async function promptForParameters(
   // If nothing to prompt for, return immediately
   if (promptParams.length === 0) {
     return resolvedDefaults;
+  }
+
+  // Resolve any @secretName@ default to the secret's value before displaying the
+  // dialog. Missing secrets resolve to an empty field (never fails here). The session
+  // and backend URL are resolved once and the secrets are fetched in parallel.
+  const secretRefs = promptParams
+    .map(param => ({ param, secretName: parseSecretReference(resolvedDefaults[param.name] ?? param.defaultValue ?? '') }))
+    .filter((r): r is { param: FunctionParameterDefinition; secretName: string } => r.secretName !== undefined);
+  if (secretRefs.length > 0) {
+    const baseUrl = getBackendUrl();
+    const session = await getGitHubSession();
+    if (baseUrl && session) {
+      await Promise.all(secretRefs.map(async ({ param, secretName }) => {
+        resolvedDefaults[param.name] = await fetchSecretValue(secretName, baseUrl, session.accessToken);
+      }));
+    } else {
+      // No backend/session available — clear the references so raw @name@ isn't shown.
+      for (const { param } of secretRefs) {
+        resolvedDefaults[param.name] = '';
+      }
+    }
   }
 
   // Single parameter: use simple input box
