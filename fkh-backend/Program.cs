@@ -63,6 +63,7 @@ var host = new HostBuilder()
         services.AddSingleton<FkhGetUser>();
         services.AddSingleton<FkhNewUser>();
         services.AddSingleton<FkhGetContainerDetails>();
+        services.AddSingleton<FkhKeyVault>();
     })
     .Build();
 

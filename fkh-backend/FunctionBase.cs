@@ -282,11 +282,18 @@ public abstract class FunctionBase
         }
 
         ClearFailedAttempts(auth.ClientIp);
+        // Reapply caller-supplied internal params first, then overwrite with trusted
+        // authentication values so clients cannot spoof identity/authorization fields.
+        foreach (var kv in internalParams)
+            parameters[kv.Key] = kv.Value;
         parameters["_githubUsername"] = auth.Username;
         parameters["_isAdmin"] = auth.IsAdmin.ToString();
         parameters["_isSupport"] = auth.IsSupport.ToString();
-        foreach (var kv in internalParams)
-            parameters[kv.Key] = kv.Value;
+        parameters["_isOidc"] = auth.IsOidc.ToString();
+
+        // Substitute @secretName@ parameter values with Key Vault secrets
+        var secretError = await ResolveSecretReferencesAsync(req, logger, parameters);
+        if (secretError is not null) return secretError;
 
         // ── Execute operation ─────────────────────────────────────────────────────
         return await RunOperationAsync(req, logger, operationName, auth.Username,
@@ -460,10 +467,15 @@ public abstract class FunctionBase
         parametersResult.Parameters!["_githubUsername"] = auth.Username;
         parametersResult.Parameters!["_isAdmin"] = auth.IsAdmin.ToString();
         parametersResult.Parameters!["_isSupport"] = auth.IsSupport.ToString();
+        parametersResult.Parameters!["_isOidc"] = auth.IsOidc.ToString();
 
         // Resolve artifact shorthand (e.g. "///us/latest") to a full URL
         var artifactError = await ResolveArtifactAsync(req, logger, parametersResult.Parameters);
         if (artifactError is not null) return artifactError;
+
+        // Substitute @secretName@ parameter values with Key Vault secrets
+        var secretError = await ResolveSecretReferencesAsync(req, logger, parametersResult.Parameters);
+        if (secretError is not null) return secretError;
 
         // ── Execute operation ─────────────────────────────────────────────────────
         return await RunOperationAsync(req, logger, operationName, auth.Username,
@@ -497,9 +509,14 @@ public abstract class FunctionBase
         parametersResult.Parameters!["_githubUsername"] = auth.Username;
         parametersResult.Parameters!["_isAdmin"] = auth.IsAdmin.ToString();
         parametersResult.Parameters!["_isSupport"] = auth.IsSupport.ToString();
+        parametersResult.Parameters!["_isOidc"] = auth.IsOidc.ToString();
 
         var artifactError = await ResolveArtifactAsync(req, logger, parametersResult.Parameters);
         if (artifactError is not null) return artifactError;
+
+        // Substitute @secretName@ parameter values with Key Vault secrets
+        var secretError = await ResolveSecretReferencesAsync(req, logger, parametersResult.Parameters);
+        if (secretError is not null) return secretError;
 
         // Fire the operation on a background thread — do not await
         var parameters = parametersResult.Parameters!;
@@ -572,6 +589,7 @@ public abstract class FunctionBase
         public required string Username { get; init; }
         public required bool IsAdmin { get; init; }
         public required bool IsSupport { get; init; }
+        public required bool IsOidc { get; init; }
         public required string ClientIp { get; init; }
         public required FunctionDefinition Function { get; init; }
     }
@@ -633,6 +651,7 @@ public abstract class FunctionBase
         string username;
         var isAdmin = false;
         var isSupport = false;
+        var isOidc = false;
 
         if (AdoOidcService.IsAdoOidcToken(token))
         {
@@ -647,6 +666,7 @@ public abstract class FunctionBase
 
             username = GetAdoOidcUsername(subject);
             isAdmin = true;
+            isOidc = true;
             logger.LogInformation("Received {Operation} request from ADO OIDC caller: {Subject} (username: {Username}, admin: true)", operationName, subject, username);
         }
         else if (GitHubOidcService.IsOidcToken(token))
@@ -662,6 +682,7 @@ public abstract class FunctionBase
 
             username = repository.Replace('/', '-');
             isAdmin = true;
+            isOidc = true;
             logger.LogInformation("Received {Operation} request from OIDC caller: {Repository} (username: {Username}, admin: true)", operationName, repository, username);
         }
         else
@@ -700,6 +721,7 @@ public abstract class FunctionBase
             Username = username,
             IsAdmin = isAdmin,
             IsSupport = isSupport,
+            IsOidc = isOidc,
             ClientIp = clientIp,
             Function = function
         }, null);
@@ -832,6 +854,67 @@ public abstract class FunctionBase
         {
             return Respond(req, HttpStatusCode.BadRequest, $"Failed to resolve artifact '{rawArtifact}': {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Substitutes any parameter whose value is a secret reference of the form
+    /// <c>@secretName@</c> with the matching Key Vault secret (personal→org fallback).
+    /// Fails the request if a referenced secret does not exist. Internal (_) parameters
+    /// are never substituted.
+    /// </summary>
+    private static async Task<HttpResponseData?> ResolveSecretReferencesAsync(
+        HttpRequestData req,
+        ILogger logger,
+        Dictionary<string, string> parameters)
+    {
+        var references = parameters
+            .Where(kv => !kv.Key.StartsWith('_') && IsSecretReference(kv.Value, out _))
+            .ToList();
+        if (references.Count == 0)
+            return null;
+
+        var githubUsername = parameters.GetValueOrDefault("_githubUsername", "unknown");
+        var isOidc = string.Equals(parameters.GetValueOrDefault("_isOidc"), "true", StringComparison.OrdinalIgnoreCase);
+
+        FkhKeyVault? keyVault = null;
+        foreach (var kv in references)
+        {
+            IsSecretReference(kv.Value, out var secretName);
+            try
+            {
+                keyVault ??= FkhKeyVault.Create(logger);
+                var value = await keyVault.TryGetSecretValueAsync(secretName!, githubUsername, isOidc);
+                if (value is null)
+                    return Respond(req, HttpStatusCode.BadRequest, $"No secret found named '{secretName}' (referenced by parameter '{kv.Key}').");
+
+                parameters[kv.Key] = value;
+                logger.LogInformation("Resolved secret reference for parameter '{Param}' from secret '{Secret}'.", kv.Key, secretName);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to resolve secret '{Secret}' for parameter '{Param}'.", secretName, kv.Key);
+                return Respond(req, HttpStatusCode.BadRequest, $"Failed to resolve secret '{secretName}' for parameter '{kv.Key}': {ex.Message}");
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Returns true if <paramref name="value"/> is a secret reference (<c>@name@</c>)
+    /// and outputs the alphanumeric secret name.
+    /// </summary>
+    private static bool IsSecretReference(string? value, out string? secretName)
+    {
+        secretName = null;
+        if (string.IsNullOrEmpty(value) || value.Length < 3) return false;
+        if (value[0] != '@' || value[^1] != '@') return false;
+secretName = value[1..^1];
+        if (!secretName.All(char.IsLetterOrDigit))
+        {
+            secretName = null;
+            return false;
+        }
+        return true;
     }
 
     /// <summary>

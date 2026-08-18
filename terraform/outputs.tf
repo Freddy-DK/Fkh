@@ -78,6 +78,16 @@ output "acr_name" {
   value       = azurerm_container_registry.this.name
 }
 
+output "keyvault_name" {
+  description = "Name of the Key Vault."
+  value       = azurerm_key_vault.this.name
+}
+
+output "keyvault_uri" {
+  description = "URI of the Key Vault."
+  value       = azurerm_key_vault.this.vault_uri
+}
+
 output "dbs_storage_account_name" {
   description = "Name of the storage account for database backups."
   value       = azurerm_storage_account.dbs.name
