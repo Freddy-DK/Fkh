@@ -361,6 +361,37 @@ async function getPublicIp(): Promise<string | undefined> {
   return undefined;
 }
 
+// Returns the secret name if value is a secret reference (@name@), otherwise undefined.
+function parseSecretReference(value: string | undefined): string | undefined {
+  if (!value || value.length < 3) { return undefined; }
+  if (value[0] !== '@' || value[value.length - 1] !== '@') { return undefined; }
+  const inner = value.slice(1, -1);
+  if (inner.length === 0 || !/^[a-zA-Z0-9]+$/.test(inner)) { return undefined; }
+  return inner;
+}
+
+// Resolves a secret value via the backend GetSecret route. Returns an empty string
+// when the secret does not exist or cannot be fetched (never throws).
+async function fetchSecretValue(secretName: string, baseUrl: string, accessToken: string): Promise<string> {
+  try {
+    const response = await fetch(`${baseUrl}/GetSecret`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+        'X-Fkh-Protocol-Version': String(PROTOCOL_VERSION),
+        'X-Fkh-Client': CLIENT_APP,
+      },
+      body: JSON.stringify({ parameters: { name: secretName } }),
+    });
+    if (!response.ok) { return ''; }
+    const result = await response.json() as { secret?: string };
+    return result.secret ?? '';
+  } catch {
+    return '';
+  }
+}
+
 async function getGitHubSession(): Promise<vscode.AuthenticationSession | undefined> {
   try {
     // Try to get an existing session silently first (works in vscode.dev where
@@ -463,13 +494,19 @@ async function promptForParameters(
   // Apply cached AL-Go fkh settings for this function
   if (cachedFkhSettings) {
     const prefix = `${definition.name}.`;
+    const requiredParams = new Set(
+      definition.parameters.filter(p => p.required).map(p => p.name.toLowerCase())
+    );
     for (const [key, value] of Object.entries(cachedFkhSettings)) {
       if (key.startsWith(prefix)) {
         const paramKey = key.substring(prefix.length);
         const strValue = String(value ?? '').trim();
-        if (paramKey.endsWith('?')) {
-          // Trailing ? means show the parameter with value as default (don't override explicit prefilledDefaults)
-          const cleanKey = paramKey.slice(0, -1);
+        // Required params are always shown (treated like a trailing '?') so a hard
+        // override to a missing secret leaves an empty, required field to fill in.
+        const cleanKey = paramKey.endsWith('?') ? paramKey.slice(0, -1) : paramKey;
+        const asDefault = paramKey.endsWith('?') || requiredParams.has(cleanKey.toLowerCase());
+        if (asDefault) {
+          // Show the parameter with value as default (don't override explicit prefilledDefaults)
           if (!(cleanKey in prefilledDefaults) && strValue) {
             prefilledDefaults[cleanKey] = strValue;
           }
@@ -572,6 +609,27 @@ async function promptForParameters(
     return resolvedDefaults;
   }
 
+  // Resolve any @secretName@ default to the secret's value before displaying the
+  // dialog. Missing secrets resolve to an empty field (never fails here). The session
+  // and backend URL are resolved once and the secrets are fetched in parallel.
+  const secretRefs = promptParams
+    .map(param => ({ param, secretName: parseSecretReference(resolvedDefaults[param.name] ?? param.defaultValue ?? '') }))
+    .filter((r): r is { param: FunctionParameterDefinition; secretName: string } => r.secretName !== undefined);
+  if (secretRefs.length > 0) {
+    const baseUrl = getBackendUrl();
+    const session = await getGitHubSession();
+    if (baseUrl && session) {
+      await Promise.all(secretRefs.map(async ({ param, secretName }) => {
+        resolvedDefaults[param.name] = await fetchSecretValue(secretName, baseUrl, session.accessToken);
+      }));
+    } else {
+      // No backend/session available — clear the references so raw @name@ isn't shown.
+      for (const { param } of secretRefs) {
+        resolvedDefaults[param.name] = '';
+      }
+    }
+  }
+
   // Single parameter: use simple input box
   if (promptParams.length === 1) {
     const param = promptParams[0];
@@ -645,7 +703,7 @@ async function promptForParameters(
       let desc = param.description;
       const escapedDesc = desc.replace(/&/g, '&amp;').replace(/</g, '&lt;');
       const requiredBadge = param.required ? '<span class="required">required</span>' : '';
-      const isPassword = param.name.toLowerCase().includes('password');
+      const isPassword = param.name.toLowerCase().includes('password') || param.name.toLowerCase().includes('secret');
 
       if (param.type.toLowerCase() === 'boolean') {
         const checked = defaultVal.toLowerCase() === 'true' ? 'checked' : '';
@@ -655,11 +713,15 @@ async function promptForParameters(
         </div>`;
       }
 
+      const inputHtml = `<input type="${isPassword ? 'password' : 'text'}" id="${param.name}" name="${param.name}"
+          value="${escapedDefault}" placeholder="${escapedDefault || (param.required ? '(required)' : '(optional)')}"${param.required ? ' required' : ''} />`;
+
       return `<div class="field">
         <label for="${param.name}">${param.name} ${requiredBadge}</label>
         <div class="desc">${escapedDesc}</div>
-        <input type="${isPassword ? 'password' : 'text'}" id="${param.name}" name="${param.name}"
-          value="${escapedDefault}" placeholder="${escapedDefault || (param.required ? '(required)' : '(optional)')}"${param.required ? ' required' : ''} />
+        ${isPassword
+          ? `<div class="pw-wrap">${inputHtml}<button type="button" class="pw-toggle" data-target="${param.name}" aria-label="Show value">Show</button></div>`
+          : inputHtml}
       </div>`;
     }).join('\n');
 
@@ -683,6 +745,13 @@ async function promptForParameters(
   }
   input[type="text"]:focus, input[type="password"]:focus { outline: 1px solid var(--vscode-focusBorder); }
   input:invalid { border-color: var(--vscode-errorForeground); }
+  .pw-wrap { display: flex; gap: 6px; align-items: stretch; }
+  .pw-wrap input { flex: 1; }
+  .pw-toggle {
+    padding: 6px 10px; font-size: 12px; white-space: nowrap;
+    background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground);
+  }
+  .pw-toggle:hover { background: var(--vscode-button-secondaryHoverBackground); }
   .buttons { margin-top: 20px; display: flex; gap: 8px; }
   button {
     padding: 6px 16px; border: none; border-radius: 2px; cursor: pointer; font-size: 13px;
@@ -724,6 +793,16 @@ async function promptForParameters(
     document.getElementById('cancelBtn').addEventListener('click', () => {
       vscode.postMessage({ command: 'cancel' });
     });
+    for (const btn of document.querySelectorAll('.pw-toggle')) {
+      btn.addEventListener('click', () => {
+        const input = document.getElementById(btn.getAttribute('data-target'));
+        if (!input) return;
+        const show = input.type === 'password';
+        input.type = show ? 'text' : 'password';
+        btn.textContent = show ? 'Hide' : 'Show';
+        btn.setAttribute('aria-label', show ? 'Hide value' : 'Show value');
+      });
+    }
     // Focus first input
     const first = form.querySelector('input');
     if (first) first.focus();

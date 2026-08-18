@@ -1358,6 +1358,63 @@ public static class FunctionCatalog
                     DefaultValue = "false"
                 }
             }
+        },
+        new FunctionDefinition
+        {
+            Name = "GetSecret",
+            Description = "Gets a secret value from the deployment's Key Vault by name. Reads your personal secret (prefixed with your GitHub username) if it exists, otherwise falls back to the organization secret (prefixed with the org name). Returns an empty string if neither exists.",
+            Route = "GetSecret",
+            Parameters = new List<FunctionParameterDefinition>
+            {
+                new()
+                {
+                    Name = "name",
+                    Type = "string",
+                    Description = "Name of the secret to read from the Key Vault. May not contain a dash.",
+                    Required = true,
+                    DefaultValue = null
+                }
+            }
+        },
+        new FunctionDefinition
+        {
+            Name = "SetSecret",
+            Description = "Adds, updates, or removes a secret in the deployment's Key Vault. By default sets a personal secret scoped to your GitHub username (prefixed with your username); use --allusers to set an organization-wide secret (prefixed with the org name), which is admin only. Pass an empty secret value to remove the secret.",
+            Route = "SetSecret",
+            Parameters = new List<FunctionParameterDefinition>
+            {
+                new()
+                {
+                    Name = "name",
+                    Type = "string",
+                    Description = "Name of the secret to set in the Key Vault. May not contain a dash.",
+                    Required = true,
+                    DefaultValue = null
+                },
+                new()
+                {
+                    Name = "secret",
+                    Type = "string",
+                    Description = "The secret value to store (plain text). Pass an empty value to remove the secret.",
+                    Required = false,
+                    DefaultValue = null
+                },
+                new()
+                {
+                    Name = "allusers",
+                    Type = "boolean",
+                    Description = "Set an organization-wide secret scoped to the org name instead of a personal secret. Admin only.",
+                    Required = false,
+                    DefaultValue = "false"
+                }
+            }
+        },
+        new FunctionDefinition
+        {
+            Name = "ListSecrets",
+            Description = "Lists the names of all secrets in the deployment's Key Vault. Organization-wide secrets (prefixed with the org name) are returned under 'allUsers', followed by your personal secrets (prefixed with your GitHub username) under a key named after your username. OIDC only lists organization secrets.",
+            Route = "ListSecrets",
+            Parameters = new List<FunctionParameterDefinition>()
         }
     };
 

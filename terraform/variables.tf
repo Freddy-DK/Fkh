@@ -69,6 +69,17 @@ variable "acr_sku" {
   }
 }
 
+variable "keyvault_sku" {
+  description = "Key Vault pricing tier. 'Standard' for software-protected keys, 'Premium' for HSM-backed keys."
+  type        = string
+  default     = "Standard"
+
+  validation {
+    condition     = contains(["Standard", "Premium"], var.keyvault_sku)
+    error_message = "keyvault_sku must be one of: Standard, Premium."
+  }
+}
+
 variable "windows_min_node_count" {
   description = "Minimum number of Windows nodes to keep running (0 = scale to zero, 1 = always keep a warm node)."
   type        = number
