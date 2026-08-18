@@ -1408,6 +1408,13 @@ public static class FunctionCatalog
                     DefaultValue = "false"
                 }
             }
+        },
+        new FunctionDefinition
+        {
+            Name = "ListSecrets",
+            Description = "Lists the names of all secrets in the deployment's Key Vault. Organization-wide secrets (prefixed with the org name) are returned under 'allUsers', followed by your personal secrets (prefixed with your GitHub username) under a key named after your username. OIDC only lists organization secrets.",
+            Route = "ListSecrets",
+            Parameters = new List<FunctionParameterDefinition>()
         }
     };
 

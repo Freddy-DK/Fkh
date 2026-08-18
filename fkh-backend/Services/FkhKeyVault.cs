@@ -42,6 +42,43 @@ public class FkhKeyVault : FkhServiceBase
     }
 
     /// <summary>
+    /// Lists the names of all secrets the caller can see: organization-wide secrets
+    /// (prefixed with the org name) under "allUsers", then the caller's personal
+    /// secrets (prefixed with their GitHub username) under a key named after the user.
+    /// OIDC has no personal user and only lists organization secrets.
+    /// </summary>
+    public async Task<object> ListSecretsAsync(Dictionary<string, string> parameters)
+    {
+        var githubUsername = parameters.GetValueOrDefault("_githubUsername", "unknown");
+        var isOidc = IsTrue(parameters, "_isOidc");
+
+        var orgPrefix = NormalizePrefix(_orgName) + "-";
+        var userPrefix = NormalizePrefix(githubUsername) + "-";
+
+        var allUsers = new List<string>();
+        var personal = new List<string>();
+
+        var client = CreateClient();
+        await foreach (var prop in client.GetPropertiesOfSecretsAsync())
+        {
+            if (prop.Name.StartsWith(orgPrefix, StringComparison.Ordinal))
+                allUsers.Add(prop.Name[orgPrefix.Length..]);
+            else if (!isOidc && prop.Name.StartsWith(userPrefix, StringComparison.Ordinal))
+                personal.Add(prop.Name[userPrefix.Length..]);
+        }
+
+        allUsers.Sort(StringComparer.OrdinalIgnoreCase);
+        personal.Sort(StringComparer.OrdinalIgnoreCase);
+
+        Logger.LogInformation("User '{User}' listed secrets ({OrgCount} organization, {PersonalCount} personal).", githubUsername, allUsers.Count, personal.Count);
+
+        var result = new Dictionary<string, List<string>> { ["allUsers"] = allUsers };
+        if (!isOidc)
+            result[githubUsername] = personal;
+        return result;
+    }
+
+    /// <summary>
     /// Resolves a secret value using the personal→organization fallback: the caller's
     /// personal secret (username-name) is preferred, then the organization secret
     /// (orgname-name). OIDC has no personal user and reads the organization secret only.
