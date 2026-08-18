@@ -906,7 +906,12 @@ public abstract class FunctionBase
         secretName = null;
         if (string.IsNullOrEmpty(value) || value.Length < 3) return false;
         if (value[0] != '@' || value[^1] != '@') return false;
-        secretName = value[1..^1];
+secretName = value[1..^1];
+        if (!secretName.All(char.IsLetterOrDigit))
+        {
+            secretName = null;
+            return false;
+        }
         return true;
     }
 
