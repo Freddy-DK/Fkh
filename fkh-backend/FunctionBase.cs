@@ -282,12 +282,14 @@ public abstract class FunctionBase
         }
 
         ClearFailedAttempts(auth.ClientIp);
+        // Reapply caller-supplied internal params first, then overwrite with trusted
+        // authentication values so clients cannot spoof identity/authorization fields.
+        foreach (var kv in internalParams)
+            parameters[kv.Key] = kv.Value;
         parameters["_githubUsername"] = auth.Username;
         parameters["_isAdmin"] = auth.IsAdmin.ToString();
         parameters["_isSupport"] = auth.IsSupport.ToString();
         parameters["_isOidc"] = auth.IsOidc.ToString();
-        foreach (var kv in internalParams)
-            parameters[kv.Key] = kv.Value;
 
         // Substitute @secretName@ parameter values with Key Vault secrets
         var secretError = await ResolveSecretReferencesAsync(req, logger, parameters);
