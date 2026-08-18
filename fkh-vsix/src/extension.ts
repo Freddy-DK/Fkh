@@ -703,7 +703,7 @@ async function promptForParameters(
       let desc = param.description;
       const escapedDesc = desc.replace(/&/g, '&amp;').replace(/</g, '&lt;');
       const requiredBadge = param.required ? '<span class="required">required</span>' : '';
-      const isPassword = param.name.toLowerCase().includes('password');
+      const isPassword = param.name.toLowerCase().includes('password') || param.name.toLowerCase().includes('secret');
 
       if (param.type.toLowerCase() === 'boolean') {
         const checked = defaultVal.toLowerCase() === 'true' ? 'checked' : '';
@@ -713,11 +713,15 @@ async function promptForParameters(
         </div>`;
       }
 
+      const inputHtml = `<input type="${isPassword ? 'password' : 'text'}" id="${param.name}" name="${param.name}"
+          value="${escapedDefault}" placeholder="${escapedDefault || (param.required ? '(required)' : '(optional)')}"${param.required ? ' required' : ''} />`;
+
       return `<div class="field">
         <label for="${param.name}">${param.name} ${requiredBadge}</label>
         <div class="desc">${escapedDesc}</div>
-        <input type="${isPassword ? 'password' : 'text'}" id="${param.name}" name="${param.name}"
-          value="${escapedDefault}" placeholder="${escapedDefault || (param.required ? '(required)' : '(optional)')}"${param.required ? ' required' : ''} />
+        ${isPassword
+          ? `<div class="pw-wrap">${inputHtml}<button type="button" class="pw-toggle" data-target="${param.name}" aria-label="Show value">Show</button></div>`
+          : inputHtml}
       </div>`;
     }).join('\n');
 
@@ -741,6 +745,13 @@ async function promptForParameters(
   }
   input[type="text"]:focus, input[type="password"]:focus { outline: 1px solid var(--vscode-focusBorder); }
   input:invalid { border-color: var(--vscode-errorForeground); }
+  .pw-wrap { display: flex; gap: 6px; align-items: stretch; }
+  .pw-wrap input { flex: 1; }
+  .pw-toggle {
+    padding: 6px 10px; font-size: 12px; white-space: nowrap;
+    background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground);
+  }
+  .pw-toggle:hover { background: var(--vscode-button-secondaryHoverBackground); }
   .buttons { margin-top: 20px; display: flex; gap: 8px; }
   button {
     padding: 6px 16px; border: none; border-radius: 2px; cursor: pointer; font-size: 13px;
@@ -782,6 +793,16 @@ async function promptForParameters(
     document.getElementById('cancelBtn').addEventListener('click', () => {
       vscode.postMessage({ command: 'cancel' });
     });
+    for (const btn of document.querySelectorAll('.pw-toggle')) {
+      btn.addEventListener('click', () => {
+        const input = document.getElementById(btn.getAttribute('data-target'));
+        if (!input) return;
+        const show = input.type === 'password';
+        input.type = show ? 'text' : 'password';
+        btn.textContent = show ? 'Hide' : 'Show';
+        btn.setAttribute('aria-label', show ? 'Hide value' : 'Show value');
+      });
+    }
     // Focus first input
     const first = form.querySelector('input');
     if (first) first.focus();
