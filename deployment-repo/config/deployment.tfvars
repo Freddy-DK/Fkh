@@ -220,7 +220,7 @@ github_app_installation_id = "123456789"  # paste your Installation ID here
 #     "MaxContainers": 10,
 #     "Uptime": {
 #       "TimeZone": "Central European Standard Time",
-#       "Weekdays": { "Mon": "06:00-18:00", "Tue": "06:00-18:00", "Wed": "06:00-18:00", "Thu": "06:00-18:00", "Fri": "06:00-18:00" },
+#       "Weekdays": { "Mon": "06:00-18:00", "Tue": "06:00-18:00", "Wed": "06:00-18:00", "Thu": "06:00-18:00", "Fri": "06:00-18:00", "Sat": "-18:00", "Sun": "-18:00" },
 #       "UseNagerHolidays": { "Countries": "DK", "Types": "Public,Bank" }
 #     }
 #   }
