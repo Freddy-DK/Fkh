@@ -914,7 +914,17 @@ public static class FunctionCatalog
             Route = "StopFkh",
             AdminOnly = true,
             RequiresConfirmation = true,
-            Parameters = new List<FunctionParameterDefinition>()
+            Parameters = new List<FunctionParameterDefinition>
+            {
+                new()
+                {
+                    Name = "autostart",
+                    Type = "string",
+                    Description = "When to automatically start the cluster again, overriding the next scheduled start. Use '<n>h' for hours from now (e.g. '8h') or a time of day (e.g. '06:00'). Leave empty to follow the schedule.",
+                    Required = false,
+                    DefaultValue = null
+                }
+            }
         },
         new FunctionDefinition
         {
@@ -922,7 +932,17 @@ public static class FunctionCatalog
             Description = "Starts a previously stopped AKS cluster. Restores all nodes and workloads. Admin only.",
             Route = "StartFkh",
             AdminOnly = true,
-            Parameters = new List<FunctionParameterDefinition>()
+            Parameters = new List<FunctionParameterDefinition>
+            {
+                new()
+                {
+                    Name = "autostop",
+                    Type = "string",
+                    Description = "When to automatically stop the cluster again, overriding the next scheduled stop. Use '<n>h' for hours from now (e.g. '4h') or a time of day (e.g. '18:00'). Leave empty to follow the schedule.",
+                    Required = false,
+                    DefaultValue = null
+                }
+            }
         },
         new FunctionDefinition
         {

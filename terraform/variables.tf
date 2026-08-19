@@ -320,7 +320,25 @@ variable "contact_email_for_letsencrypt" {
 # ── User Settings ─────────────────────────────────────────────────────────────
 
 variable "default_user_settings" {
-  description = "Default user settings JSON. Deployed to the 'settings/defaultusersettings.json' blob. Keys '_members' and '_admins' define defaults for each role."
+  description = <<-DESC
+    Default user settings JSON. Deployed to the 'settings/defaultusersettings.json' blob.
+    Keys '_members' and '_admins' define defaults for each role. Runtime changes made via
+    'setsettings' are stored separately in 'usersettings.json' and always override these
+    defaults, so 'terraform apply' never clobbers values an admin set at runtime.
+
+    Optional cluster uptime schedule (auto start/stop to save cost) is defined under
+    '_admins.Uptime':
+      "Uptime": {
+        "TimeZone": "Central European Standard Time",
+        "Weekdays": { "Mon": "06:00-18:00", ... },   // a missing day is off
+        "UseNagerHolidays": { "Countries": "DK,DE,DE-BE", "Types": "Public,Bank" }
+      }
+    Each weekday value is one of:
+      "HH:mm-HH:mm" - auto-start at the first time, auto-stop at the second.
+      "HH:mm-"      - start-only: auto-start at the time, never auto-stop (manual stop).
+      "-HH:mm"      - stop-only: auto-stop at the time, never auto-start (manual start).
+    A day is excluded (cluster off) only when every listed country has a matching holiday.
+  DESC
   type        = string
   default     = <<-EOT
     {

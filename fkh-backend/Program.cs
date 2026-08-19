@@ -53,6 +53,8 @@ var host = new HostBuilder()
         services.AddSingleton<FkhPrepull>();
         services.AddSingleton<FkhUserSettings>();
         services.AddSingleton<FkhClusterControl>();
+        services.AddSingleton<FkhHolidayService>();
+        services.AddSingleton<FkhClusterSchedule>();
         services.AddSingleton<FkhGetVersion>();
         services.AddSingleton<FkhCopyFileFromContainer>();
         services.AddSingleton<FkhCopyFileToContainer>();
