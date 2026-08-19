@@ -78,8 +78,11 @@ public class FkhUserSettings : FkhServiceBase
             throw new UnauthorizedAccessException("You can only view your own settings.");
         }
 
-        // Resolve settings for the user
-        var resolved = ResolveUserSettings(allSettings, defaultSettings, username, isAdmin || IsSpecialKey(username));
+        // Resolve settings for the user. Special keys (_members/_admins) return only their own
+        // merged values (default + runtime); layering _admins over _members would be wrong here.
+        var resolved = IsSpecialKey(username)
+            ? MergeSpecialKey(defaultSettings, allSettings, username) ?? new JsonObject()
+            : ResolveUserSettings(allSettings, defaultSettings, username, isAdmin);
 
         if (!string.IsNullOrWhiteSpace(property))
         {
