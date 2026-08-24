@@ -72,4 +72,31 @@ public class FunctionCatalogTests
             }
         }
     }
+
+    [Fact]
+    public void Hidden_functions_match_the_expected_set()
+    {
+        // Hidden functions are excluded from the public /functions catalog, so the E2E auth sweep
+        // cannot discover them at runtime and appends them explicitly. Keep this set in sync with
+        // AuthAndContractTests.GetAllRoutesAsync in tests/e2e — this test fails if they diverge.
+        var expected = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "GetContainerDetails",
+            "GetDatabaseUploadSas",
+            "GetDatabaseDownloadSas",
+            "GetFileUploadSas",
+            "GetFileDownloadSas",
+            "Status",
+        };
+
+        var actual = FunctionCatalog.Functions
+            .Where(f => f.Hidden)
+            .Select(f => f.Route)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        Assert.True(actual.SetEquals(expected),
+            $"Hidden functions changed. Expected [{string.Join(", ", expected.OrderBy(x => x))}], " +
+            $"actual [{string.Join(", ", actual.OrderBy(x => x))}]. " +
+            "Update this test AND AuthAndContractTests.GetAllRoutesAsync (tests/e2e) to keep the auth sweep complete.");
+    }
 }

@@ -73,22 +73,31 @@ public abstract class FunctionBase
 
     private static string GetClientIp(HttpRequestData req)
     {
-        // Azure Functions behind a load balancer forwards the real IP in X-Forwarded-For
-        if (req.Headers.TryGetValues("X-Forwarded-For", out var xff))
+        req.Headers.TryGetValues("X-Forwarded-For", out var xff);
+        return ExtractClientIp(xff, req.Url.Host);
+    }
+
+    // Resolves the trustworthy client IP from X-Forwarded-For. Azure App Service's front end appends
+    // the real socket IP as the LAST entry; any earlier entries are caller-supplied and must not be
+    // trusted, otherwise brute-force protection could be bypassed by spoofing the header.
+    // (Revisit if a fronting proxy such as Azure Front Door is introduced.)
+    internal static string ExtractClientIp(IEnumerable<string>? forwardedForValues, string fallbackHost)
+    {
+        if (forwardedForValues is not null)
         {
-            var first = xff.FirstOrDefault();
-            if (!string.IsNullOrWhiteSpace(first))
+            var parts = string.Join(',', forwardedForValues)
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length > 0)
             {
-                // X-Forwarded-For can be "client, proxy1, proxy2" — take the first
-                var ip = first.Split(',')[0].Trim();
-                // Strip port if present (e.g. "1.2.3.4:12345")
+                var ip = parts[^1];
+                // Strip port if present (e.g. "1.2.3.4:12345"); leave bracketed IPv6 addresses intact.
                 var colonIdx = ip.LastIndexOf(':');
-                if (colonIdx > 0 && !ip.Contains(']')) // avoid stripping IPv6
+                if (colonIdx > 0 && !ip.Contains(']'))
                     ip = ip[..colonIdx];
                 return ip;
             }
         }
-        return req.Url.Host;
+        return fallbackHost;
     }
 
     internal static bool IsIpBlocked(string ip)

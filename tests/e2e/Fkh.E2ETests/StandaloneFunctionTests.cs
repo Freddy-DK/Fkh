@@ -81,6 +81,77 @@ public class StandaloneFunctionTests : E2ETest
         }
     }
 
+    [Fact]
+    public void File_can_be_uploaded_listed_downloaded_and_removed()
+    {
+        RequireExtensive();
+
+        var name = Unique("e2efile");
+        const string version = "1.0";
+        const string content = "fkh e2e file round-trip";
+        var local = Path.Combine(Path.GetTempPath(), $"{name}.txt");
+        var download = Path.Combine(Path.GetTempPath(), $"{name}-dl.txt");
+        File.WriteAllText(local, content);
+
+        var removed = false;
+        try
+        {
+            FkhCli.Run(Op, "UploadFile", "--localPath", local, "--FileName", name, "--FileVersion", version);
+            var listed = FkhCli.RunJson(Op, "ListFiles", "--file", $"{name}/*");
+            Assert.True(JsonContainsText(listed, name), $"Uploaded file '{name}' not found in ListFiles.");
+
+            FkhCli.Run(Op, "DownloadFile", "--file", $"{name}/{version}", "--output", download);
+            Assert.True(File.Exists(download), "Downloaded file was not written.");
+            Assert.Equal(content, File.ReadAllText(download));
+
+            var removal = FkhCli.Run(Op, "RemoveFile", "--file", $"{name}/{version}", "--confirm");
+            removed = removal.ExitCode == 0;
+            Assert.True(removed, $"RemoveFile failed: {removal.StdErr}");
+        }
+        finally
+        {
+            if (!removed) FkhCli.Run(Op, "RemoveFile", "--file", $"{name}/{version}", "--confirm");
+            File.Delete(local);
+            if (File.Exists(download)) File.Delete(download);
+        }
+    }
+
+    [Fact]
+    public void Database_can_be_uploaded_listed_downloaded_and_removed()
+    {
+        RequireExtensive();
+
+        var name = Unique("e2edb");
+        const string version = "1.0";
+        // Dummy .bak content — exercises the blob upload/download/remove flow, not a real restore.
+        var content = $"dummy-bak-{name}";
+        var local = Path.Combine(Path.GetTempPath(), $"{name}.bak");
+        var download = Path.Combine(Path.GetTempPath(), $"{name}-dl.bak");
+        File.WriteAllText(local, content);
+
+        var removed = false;
+        try
+        {
+            FkhCli.Run(Op, "UploadDatabase", "--bakFile", local, "--backupName", name, "--backupVersion", version);
+            var listed = FkhCli.RunJson(Op, "ListDatabases", "--database", $"{name}/*");
+            Assert.True(JsonContainsText(listed, name), $"Uploaded database '{name}' not found in ListDatabases.");
+
+            FkhCli.Run(Op, "DownloadDatabase", "--database", $"{name}/{version}", "--output", download);
+            Assert.True(File.Exists(download), "Downloaded database was not written.");
+            Assert.Equal(content, File.ReadAllText(download));
+
+            var removal = FkhCli.Run(Op, "RemoveDatabase", "--database", $"{name}/{version}", "--confirm");
+            removed = removal.ExitCode == 0;
+            Assert.True(removed, $"RemoveDatabase failed: {removal.StdErr}");
+        }
+        finally
+        {
+            if (!removed) FkhCli.Run(Op, "RemoveDatabase", "--database", $"{name}/{version}", "--confirm");
+            File.Delete(local);
+            if (File.Exists(download)) File.Delete(download);
+        }
+    }
+
     // ── Cluster-wide or heavyweight functions: present for visibility, skipped to protect the
     // shared environment. Exercise these manually against a disposable deployment.
 
@@ -112,7 +183,25 @@ public class StandaloneFunctionTests : E2ETest
     public void RemovePrepull_is_not_run_automatically()
         => Assert.Skip("AddPrepull/RemovePrepull change node pre-pull config cluster-wide; exercise manually.");
 
-    [Fact]
-    public void RemoveFile_is_not_run_automatically()
-        => Assert.Skip("RemoveFile requires a pre-uploaded file blob; exercise manually after uploadfile.");
+    private static bool JsonContainsText(JsonElement element, string text)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.String:
+                return element.GetString()?.Contains(text, StringComparison.OrdinalIgnoreCase) == true;
+            case JsonValueKind.Object:
+                foreach (var prop in element.EnumerateObject())
+                {
+                    if (prop.Name.Contains(text, StringComparison.OrdinalIgnoreCase)) return true;
+                    if (JsonContainsText(prop.Value, text)) return true;
+                }
+                return false;
+            case JsonValueKind.Array:
+                foreach (var item in element.EnumerateArray())
+                    if (JsonContainsText(item, text)) return true;
+                return false;
+            default:
+                return false;
+        }
+    }
 }
