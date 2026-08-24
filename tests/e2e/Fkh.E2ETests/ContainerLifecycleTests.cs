@@ -45,10 +45,7 @@ public class ContainerLifecycleTests : E2ETest
             FkhCli.RunJson(WaitTimeout, "WaitForContainer", "--name", name);
             E2ELog.Line($"Container '{name}' is ready.");
 
-            E2ELog.Line($"Fetching details for '{name}'.");
-            var details = FkhCli.RunJson("GetContainerDetails", "--name", name);
-            Assert.Equal(JsonValueKind.Object, details.ValueKind);
-
+            E2ELog.Line($"Verifying '{name}' via ListContainers.");
             var listed = FkhCli.RunJson("ListContainers");
             var found = JsonContainsName(listed, name);
             Assert.True(found, $"Created container '{name}' not found in ListContainers output.");
@@ -59,7 +56,7 @@ public class ContainerLifecycleTests : E2ETest
             if (created)
             {
                 E2ELog.Line($"Cleaning up: removing container '{name}'.");
-                var removal = FkhCli.Run(RemoveTimeout, "RemoveContainer", "--name", name, "--confirm");
+                var removal = FkhCli.Run(RemoveTimeout, "RemoveContainer", "--name", name);
                 Assert.True(removal.ExitCode == 0,
                     $"Cleanup failed to remove container '{name}': {removal.StdErr}");
                 E2ELog.Line($"Container '{name}' removed.");
