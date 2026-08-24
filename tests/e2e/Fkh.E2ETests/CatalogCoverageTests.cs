@@ -83,7 +83,7 @@ internal static class E2ERegistry
     };
 }
 
-public class CatalogCoverageTests
+public class CatalogCoverageTests : E2ETest
 {
     [Fact]
     public async Task Every_catalog_function_is_registered_for_e2e()

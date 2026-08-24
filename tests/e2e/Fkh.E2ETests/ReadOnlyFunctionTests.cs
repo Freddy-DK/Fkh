@@ -5,7 +5,7 @@ namespace Fkh.E2ETests;
 
 // Invokes read-only backend functions through the CLI and asserts they return JSON.
 // These run whenever FKH_E2E_BACKEND_URL is configured (no --extensive needed).
-public class ReadOnlyFunctionTests
+public class ReadOnlyFunctionTests : E2ETest
 {
     public static TheoryData<string> ParameterlessSafeCommands =>
     [

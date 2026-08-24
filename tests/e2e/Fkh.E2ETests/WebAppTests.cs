@@ -5,7 +5,7 @@ namespace Fkh.E2ETests;
 // HTTP smoke tests for the deployed web app. Runs when a web URL is configured (explicit
 // FKH_E2E_WEB_URL or inferred from the backend URL). If the host is unreachable the test
 // skips rather than fails, so deployments without a web app are not penalized.
-public class WebAppTests
+public class WebAppTests : E2ETest
 {
     private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromSeconds(30) };
 

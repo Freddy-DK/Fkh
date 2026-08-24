@@ -6,7 +6,7 @@ namespace Fkh.E2ETests;
 // Full provisioning lifecycle driven through the CLI. Destructive and slow, so it only runs
 // under FKH_E2E_EXTENSIVE=true and requires an artifact URL + admin password to be supplied.
 [Trait("Category", "Extensive")]
-public class ContainerLifecycleTests
+public class ContainerLifecycleTests : E2ETest
 {
     // Container creation may pull a Business Central artifact/image that does not yet exist in the
     // registry, which can take up to ~an hour; allow plenty of headroom.

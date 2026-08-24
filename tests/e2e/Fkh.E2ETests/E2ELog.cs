@@ -1,18 +1,9 @@
-using Xunit;
-
 namespace Fkh.E2ETests;
 
-// Timestamped logging that routes to the current test's output (visible in test results and on
-// failure) or to the console when no test context is active (e.g. the assembly fixture).
+// Timestamped logging written straight to the console so it is visible live in the CI run log
+// (and local `dotnet run`) for every test, not only failed ones.
 internal static class E2ELog
 {
     public static void Line(string message)
-    {
-        var stamped = $"[{DateTime.UtcNow:HH:mm:ss}] {message}";
-        var helper = TestContext.Current?.TestOutputHelper;
-        if (helper is not null)
-            helper.WriteLine(stamped);
-        else
-            Console.WriteLine(stamped);
-    }
+        => Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss}] {message}");
 }
