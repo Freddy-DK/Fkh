@@ -17,7 +17,7 @@ public class WebAppTests
         HttpResponseMessage response;
         try
         {
-            response = await Client.GetAsync(E2EConfig.WebUrl);
+            response = await Client.GetAsync(E2EConfig.WebUrl, TestContext.Current.CancellationToken);
         }
         catch (HttpRequestException ex)
         {
@@ -26,7 +26,7 @@ public class WebAppTests
         }
 
         Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
-        var html = await response.Content.ReadAsStringAsync();
+        var html = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         Assert.Contains("id=\"root\"", html);
     }
 
@@ -38,7 +38,7 @@ public class WebAppTests
         HttpResponseMessage response;
         try
         {
-            response = await Client.GetAsync($"{E2EConfig.WebUrl}/sw.js");
+            response = await Client.GetAsync($"{E2EConfig.WebUrl}/sw.js", TestContext.Current.CancellationToken);
         }
         catch (HttpRequestException ex)
         {

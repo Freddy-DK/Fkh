@@ -91,7 +91,7 @@ public class CatalogCoverageTests
         Assert.SkipUnless(E2EConfig.IsConfigured, "FKH_E2E_BACKEND_URL is not set.");
 
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        var body = await client.GetStringAsync($"{E2EConfig.BackendUrl}/functions");
+        var body = await client.GetStringAsync($"{E2EConfig.BackendUrl}/functions", TestContext.Current.CancellationToken);
         using var doc = JsonDocument.Parse(body);
 
         var liveNames = doc.RootElement.GetProperty("functions")
