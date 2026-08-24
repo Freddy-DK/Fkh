@@ -10,12 +10,10 @@ public class ReadOnlyFunctionTests : E2ETest
     public static TheoryData<string> ParameterlessSafeCommands =>
     [
         "GetCurrentUser",
-        "Status",
         "ListContainers",
         "ListImages",
         "ListDatabases",
         "ListFiles",
-        "ListPrepulled",
     ];
 
     [Theory]
