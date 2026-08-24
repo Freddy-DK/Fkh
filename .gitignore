@@ -3,6 +3,8 @@ fkh-backend/bin/
 fkh-backend/obj/
 fkh-cli/bin/
 fkh-cli/obj/
+tests/**/bin/
+tests/**/obj/
 
 # Language server cache
 *.lscache

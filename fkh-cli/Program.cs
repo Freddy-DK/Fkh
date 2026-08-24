@@ -781,19 +781,25 @@ static void PrintClientCommandUsage(ClientCommand cmd)
         }
     }
     Console.WriteLine();
-    PrintCommonOptions();
+    var ownsOutput = cmd.Parameters.Any(
+        parameter => string.Equals(parameter.Name, "output", StringComparison.OrdinalIgnoreCase));
+    PrintCommonOptions(includeBinaryOutput: !ownsOutput, includeNowait: cmd.SupportsNowait);
 }
 
-static void PrintCommonOptions()
+static void PrintCommonOptions(bool includeBinaryOutput = true, bool includeNowait = true)
 {
     Console.WriteLine("Common options:");
     Console.WriteLine("    --backendUrl <url>  Override the backend URL");
     Console.WriteLine("    --ghUser <user>     GitHub user account for gh auth token (or GH_USER env var)");
     Console.WriteLine("    --useOIDC           Fetch OIDC token from GitHub Actions (auto-refreshes)");
-    Console.WriteLine("    --nowait            Don't wait for completion");
+    if (includeNowait)
+        Console.WriteLine("    --nowait            Don't wait for completion");
     Console.WriteLine("    --asJson            Output the result as JSON");
-    Console.WriteLine("    --output <path>     Save binary output to a file");
-    Console.WriteLine("    --open              Open the downloaded file after saving");
+    if (includeBinaryOutput)
+    {
+        Console.WriteLine("    --output <path>     Save binary output to a file");
+        Console.WriteLine("    --open              Open the downloaded file after saving");
+    }
     Console.WriteLine("    -h, --help          Show help");
 }
 
