@@ -537,7 +537,7 @@ public static class FunctionCatalog
         new FunctionDefinition
         {
             Name = "InvokeScript",
-            Description = "Invokes a PowerShell 7 (pwsh) script inside a running Business Central container.",
+            Description = "Launches a PowerShell 7 (pwsh) script detached inside a running Business Central container and returns a jobId immediately. Poll ScriptStatus and read ScriptResult with the returned jobId. In the CLI, --nowait prints the jobId and returns; otherwise the CLI polls to completion.",
             Route = "InvokeScript",
             Parameters = new List<FunctionParameterDefinition>
             {
@@ -571,6 +571,56 @@ public static class FunctionCatalog
                     Type = "string",
                     Description = "Parameters to pass to the script (PowerShell syntax, e.g. -Name 'value' -Count 5).",
                     Required = false,
+                    DefaultValue = null
+                }
+            }
+        },
+        new FunctionDefinition
+        {
+            Name = "ScriptStatus",
+            Description = "Returns the status (Running, Complete or Failure) of a detached script job launched by InvokeScript, PublishAppsFromBuild or MountTenant. Read-only.",
+            Route = "ScriptStatus",
+            Parameters = new List<FunctionParameterDefinition>
+            {
+                new()
+                {
+                    Name = "name",
+                    Type = "string",
+                    Description = "Name of the container the job was launched in.",
+                    Required = true,
+                    DefaultValue = null
+                },
+                new()
+                {
+                    Name = "jobId",
+                    Type = "string",
+                    Description = "The job id returned when the script was launched.",
+                    Required = true,
+                    DefaultValue = null
+                }
+            }
+        },
+        new FunctionDefinition
+        {
+            Name = "ScriptResult",
+            Description = "Returns the output of a finished detached script job and releases its resources. If the job is still running, returns status Running. One-shot: the result can only be fetched once.",
+            Route = "ScriptResult",
+            Parameters = new List<FunctionParameterDefinition>
+            {
+                new()
+                {
+                    Name = "name",
+                    Type = "string",
+                    Description = "Name of the container the job was launched in.",
+                    Required = true,
+                    DefaultValue = null
+                },
+                new()
+                {
+                    Name = "jobId",
+                    Type = "string",
+                    Description = "The job id returned when the script was launched.",
+                    Required = true,
                     DefaultValue = null
                 }
             }
@@ -621,6 +671,79 @@ public static class FunctionCatalog
                     Description = "Include the performance toolkit apps in the import.",
                     Required = false,
                     DefaultValue = "false"
+                }
+            }
+        },
+        new FunctionDefinition
+        {
+            Name = "PublishAppsFromBuild",
+            Description = "Downloads app artifacts from a GitHub Actions (AL-Go) build and publishes them into a running Business Central container. Apps are dependency-sorted and published from inside the container.",
+            Route = "PublishAppsFromBuild",
+            Parameters = new List<FunctionParameterDefinition>
+            {
+                new()
+                {
+                    Name = "name",
+                    Type = "string",
+                    Description = "Name of the container to publish the apps into.",
+                    Required = true,
+                    DefaultValue = null
+                },
+                new()
+                {
+                    Name = "buildRepo",
+                    Type = "string",
+                    Description = "Source repository as 'org/repo' or 'org/repo@branch'. Defaults to the 'main' branch when no '@branch' is given.",
+                    Required = true,
+                    DefaultValue = null
+                },
+                new()
+                {
+                    Name = "buildId",
+                    Type = "string",
+                    Description = "Workflow run id to pull artifacts from. Defaults to the latest successful CI/CD run on the branch.",
+                    Required = false,
+                    DefaultValue = null
+                },
+                new()
+                {
+                    Name = "project",
+                    Type = "string",
+                    Description = "AL-Go project to publish. Defaults to '.'; for multi-project repositories the project name must be specified.",
+                    Required = false,
+                    DefaultValue = "."
+                },
+                new()
+                {
+                    Name = "includeTestApps",
+                    Type = "boolean",
+                    Description = "Also publish the build's test apps.",
+                    Required = false,
+                    DefaultValue = "false"
+                },
+                new()
+                {
+                    Name = "includeDependencies",
+                    Type = "boolean",
+                    Description = "Also publish the build's dependency apps.",
+                    Required = false,
+                    DefaultValue = "false"
+                },
+                new()
+                {
+                    Name = "excludeAppIds",
+                    Type = "string",
+                    Description = "Comma-separated app id (GUID) list to exclude from publishing.",
+                    Required = false,
+                    DefaultValue = null
+                },
+                new()
+                {
+                    Name = "buildToken",
+                    Type = "string",
+                    Description = "GitHub token with access to the source repository's builds (Actions: read). Required when authenticating with --useOIDC (e.g. the workflow's GITHUB_TOKEN or a token generated from a GitHub App). Without --useOIDC it defaults to your own login token and can be overridden.",
+                    Required = false,
+                    DefaultValue = null
                 }
             }
         },

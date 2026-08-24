@@ -1,6 +1,6 @@
 import type { CurrentUserResponse, FunctionCatalogResponse, ListContainersResponse } from './types';
 
-const PROTOCOL_VERSION = '1';
+const PROTOCOL_VERSION = '2';
 const CLIENT_APP = 'Web App';
 
 export class AuthorizationError extends Error {
@@ -138,7 +138,60 @@ export async function invokeFunction(
     const text = await res.text();
     throw new Error(`${route} failed (${res.status}): ${text}`);
   }
-  return (await res.json()) as Record<string, unknown>;
+
+  const result = (await res.json()) as Record<string, unknown>;
+
+  // Detached script jobs return { jobId, container } — poll to completion.
+  if (isJobLaunch(route, result)) {
+    return pollScriptJob(backendUrl, token, String(result.container), String(result.jobId), onRetry);
+  }
+  return result;
+}
+
+// Detached script jobs are launched by these routes; their { jobId, container } response is
+// polled via ScriptStatus/ScriptResult instead of being treated as a final result.
+const JOB_LAUNCH_ROUTES = new Set(['InvokeScript', 'PublishAppsFromBuild', 'ImportTestToolkit', 'MountTenant']);
+
+function isJobLaunch(route: string, result: Record<string, unknown>): boolean {
+  return JOB_LAUNCH_ROUTES.has(route)
+    && typeof result.jobId === 'string' && (result.jobId as string).length > 0
+    && typeof result.container === 'string' && (result.container as string).length > 0;
+}
+
+/** Polls a detached script job to completion and returns its final result record. */
+async function pollScriptJob(
+  backendUrl: string,
+  token: string,
+  container: string,
+  jobId: string,
+  onRetry?: (message: string) => void,
+): Promise<Record<string, unknown>> {
+  const jobParams = { name: container, jobId };
+
+  for (;;) {
+    const statusRes = await apiFetch(backendUrl, 'ScriptStatus', token, { parameters: jobParams });
+    if (statusRes.status === 503) throw new SystemStoppedError();
+    if (statusRes.status === 401 || statusRes.status === 403) {
+      throw new AuthorizationError(statusRes.status, await statusRes.text());
+    }
+    if (!statusRes.ok) {
+      throw new Error(`ScriptStatus failed (${statusRes.status}): ${await statusRes.text()}`);
+    }
+    const status = (await statusRes.json()) as Record<string, unknown>;
+    if (String(status.status) !== 'Running') break;
+    onRetry?.('Running...');
+    await new Promise(r => setTimeout(r, 3000));
+  }
+
+  const resultRes = await apiFetch(backendUrl, 'ScriptResult', token, { parameters: jobParams });
+  if (resultRes.status === 503) throw new SystemStoppedError();
+  if (resultRes.status === 401 || resultRes.status === 403) {
+    throw new AuthorizationError(resultRes.status, await resultRes.text());
+  }
+  if (!resultRes.ok) {
+    throw new Error(`ScriptResult failed (${resultRes.status}): ${await resultRes.text()}`);
+  }
+  return (await resultRes.json()) as Record<string, unknown>;
 }
 
 /** Start the AKS cluster. Handles 202 retry polling. */

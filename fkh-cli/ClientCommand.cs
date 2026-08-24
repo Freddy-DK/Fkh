@@ -88,7 +88,7 @@ abstract class ClientCommand
         return url;
     }
 
-    internal const int ProtocolVersion = 1;
+    internal const int ProtocolVersion = 2;
     internal const string ClientApp = "CLI";
 
     /// <summary>

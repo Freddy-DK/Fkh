@@ -1,5 +1,5 @@
 /** Protocol version for the Fkh client-backend communication. */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 /** Client identifier sent to the backend. */
 export const CLIENT_APP = 'VS Code extension';

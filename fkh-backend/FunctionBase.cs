@@ -290,6 +290,7 @@ public abstract class FunctionBase
         parameters["_isAdmin"] = auth.IsAdmin.ToString();
         parameters["_isSupport"] = auth.IsSupport.ToString();
         parameters["_isOidc"] = auth.IsOidc.ToString();
+        parameters["_githubToken"] = auth.Token;
 
         // Substitute @secretName@ parameter values with Key Vault secrets
         var secretError = await ResolveSecretReferencesAsync(req, logger, parameters);
@@ -468,6 +469,7 @@ public abstract class FunctionBase
         parametersResult.Parameters!["_isAdmin"] = auth.IsAdmin.ToString();
         parametersResult.Parameters!["_isSupport"] = auth.IsSupport.ToString();
         parametersResult.Parameters!["_isOidc"] = auth.IsOidc.ToString();
+        parametersResult.Parameters!["_githubToken"] = auth.Token;
 
         // Resolve artifact shorthand (e.g. "///us/latest") to a full URL
         var artifactError = await ResolveArtifactAsync(req, logger, parametersResult.Parameters);
@@ -510,6 +512,7 @@ public abstract class FunctionBase
         parametersResult.Parameters!["_isAdmin"] = auth.IsAdmin.ToString();
         parametersResult.Parameters!["_isSupport"] = auth.IsSupport.ToString();
         parametersResult.Parameters!["_isOidc"] = auth.IsOidc.ToString();
+        parametersResult.Parameters!["_githubToken"] = auth.Token;
 
         var artifactError = await ResolveArtifactAsync(req, logger, parametersResult.Parameters);
         if (artifactError is not null) return artifactError;
@@ -591,6 +594,7 @@ public abstract class FunctionBase
         public required bool IsSupport { get; init; }
         public required bool IsOidc { get; init; }
         public required string ClientIp { get; init; }
+        public required string Token { get; init; }
         public required FunctionDefinition Function { get; init; }
     }
 
@@ -723,6 +727,7 @@ public abstract class FunctionBase
             IsSupport = isSupport,
             IsOidc = isOidc,
             ClientIp = clientIp,
+            Token = token,
             Function = function
         }, null);
     }

@@ -10,7 +10,7 @@ public class FkhInvokeScript : FkhServiceBase
     public FkhInvokeScript(ILogger<FkhInvokeScript> logger) : base(logger) { }
 
     /// <summary>
-    /// Invokes a script when called with --command (no file upload, regular JSON body).
+    /// Launches a script (--command) detached in the container and returns a job id immediately.
     /// </summary>
     public async Task<object> InvokeScriptAsync(Dictionary<string, string> parameters)
     {
@@ -20,7 +20,7 @@ public class FkhInvokeScript : FkhServiceBase
             throw new InvalidOperationException("Either --command or --file must be provided.");
         }
 
-        return await RunScriptInContainerAsync(parameters, script);
+        return await LaunchScriptInContainerAsync(parameters, script);
     }
 
     /// <summary>
@@ -44,50 +44,36 @@ public class FkhInvokeScript : FkhServiceBase
             throw new InvalidOperationException("Either --command or --file must be provided.");
         }
 
-        return await RunScriptInContainerAsync(parameters, script);
+        return await LaunchScriptInContainerAsync(parameters, script);
     }
 
-    private async Task<object> RunScriptInContainerAsync(Dictionary<string, string> parameters, string script)
+    /// <summary>
+    /// Launches the script detached in the container's pod and returns { jobId, container, status }.
+    /// The caller polls ScriptStatus/ScriptResult to observe completion — the backend never blocks.
+    /// </summary>
+    private async Task<object> LaunchScriptInContainerAsync(Dictionary<string, string> parameters, string script)
     {
         var githubUsername = parameters["_githubUsername"];
         var appName = ResolveAppName(parameters);
         var scriptParams = parameters.TryGetValue("scriptParams", out var sp) ? sp : "";
 
         Logger.LogInformation(
-            "User '{User}' invoking script in container '{Container}'.",
+            "User '{User}' launching script job in container '{Container}'.",
             githubUsername, appName);
 
         var client = await GetKubernetesClientAsync();
+        var (podName, containerName) = await FindBcPodAsync(client, appName);
 
-        // Find the BC pod for this container
-        var pods = await client.ListNamespacedPodAsync(Namespace, labelSelector: $"app={appName}");
-        var pod = pods.Items.FirstOrDefault(p => p.Status?.Phase == "Running")
-            ?? throw new InvalidOperationException($"No running container found for '{appName}'. Make sure the container is started and ready.");
+        var jobId = NewDetachedJobId();
+        await LaunchDetachedJobAsync(client, podName, containerName, jobId, script, scriptParams);
 
-        var podName = pod.Metadata.Name;
-        var containerName = pod.Spec.Containers[0].Name;
-
-        var result = await RunDetachedInBcPodAsync(
-            client, podName, containerName,
-            jobPrefix: "fkh",
-            jobIdInput: $"{appName}|{script}|{scriptParams}",
-            script: script,
-            scriptParams: scriptParams,
-            retryAfterSeconds: 5,
-            retryMessage: "Script still running...");
-
-        if (!string.IsNullOrWhiteSpace(result.Stderr))
-        {
-            var message = string.IsNullOrWhiteSpace(result.Stdout)
-                ? $"Script failed in container '{appName}':\n{result.Stderr}"
-                : $"Script failed in container '{appName}':\n{result.Stderr}\n\nOutput:\n{result.Stdout}";
-            throw new InvalidOperationException(message);
-        }
+        Logger.LogInformation("Launched script job '{JobId}' in container '{Container}'.", jobId, appName);
 
         return new
         {
+            JobId = jobId,
             Container = appName,
-            Output = result.Stdout,
+            Status = "Running",
         };
     }
 }

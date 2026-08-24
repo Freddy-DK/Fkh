@@ -863,51 +863,64 @@ public abstract class FkhServiceBase
         return new ExecResult(stdoutTask.Result, stderr);
     }
 
-    /// <summary>
-    /// Runs a PowerShell script detached inside a BC pod with fire-and-poll semantics.
-    /// Uses file-based markers for idempotent retries and throws <see cref="RetryAfterException"/>
-    /// if the script hasn't finished within ~30 seconds.
-    /// </summary>
     protected record DetachedJobResult(string Stdout, string Stderr);
 
-    protected async Task<DetachedJobResult> RunDetachedInBcPodAsync(
-        Kubernetes client,
-        string podName,
-        string containerName,
-        string jobPrefix,
-        string jobIdInput,
-        string script,
-        string scriptParams = "",
-        int retryAfterSeconds = 10,
-        string retryMessage = "Still running...")
+    /// <summary>State of a detached job identified by a caller-supplied GUID.</summary>
+    protected enum DetachedJobState { Running, Complete, Failed, NotFound }
+
+    // jobId is interpolated into pod PowerShell paths, so it must be a strict hex GUID.
+    private static readonly Regex JobIdRegex = new("^[0-9a-fA-F]{32}$", RegexOptions.Compiled);
+
+    private const string DetachedJobPrefix = "fkh-job";
+
+    protected static string NewDetachedJobId() => Guid.NewGuid().ToString("N");
+
+    private static string DetachedJobBasePath(string jobId)
     {
-        var jobId = ComputeDetachedJobId(jobIdInput);
-        var basePath = $"C:\\run\\my\\{jobPrefix}-{jobId}";
+        if (jobId is null || !JobIdRegex.IsMatch(jobId))
+            throw new InvalidOperationException($"Invalid jobId '{jobId}'. Expected a 32-character hex job id.");
+        return $"C:\\run\\my\\{DetachedJobPrefix}-{jobId}";
+    }
+
+    /// <summary>
+    /// Finds the running BC pod for a container app label and returns its pod + container name.
+    /// </summary>
+    protected async Task<(string PodName, string ContainerName)> FindBcPodAsync(Kubernetes client, string appName)
+    {
+        var pods = await client.ListNamespacedPodAsync(Namespace, labelSelector: $"app={appName}");
+        var pod = pods.Items.FirstOrDefault(p => p.Status?.Phase == "Running")
+            ?? throw new InvalidOperationException($"No running container found for '{appName}'. Make sure the container is started and ready.");
+        return (pod.Metadata.Name, pod.Spec.Containers[0].Name);
+    }
+
+    /// <summary>
+    /// Launches a PowerShell script detached inside a BC pod and returns immediately. The job is
+    /// identified by a caller-supplied GUID; poll <see cref="GetDetachedJobStatusAsync"/> and read
+    /// the output with <see cref="CollectDetachedJobResultAsync"/>. Idempotent: relaunching with the
+    /// same jobId is a no-op while the job files still exist.
+    /// </summary>
+    protected async Task LaunchDetachedJobAsync(
+        Kubernetes client, string podName, string containerName,
+        string jobId, string script, string scriptParams = "")
+    {
+        var basePath = DetachedJobBasePath(jobId);
         var scriptPath = $"{basePath}.ps1";
         var wrapperPath = $"{basePath}-run.ps1";
         var stdoutPath = $"{basePath}.stdout";
         var stderrPath = $"{basePath}.stderr";
         var donePath = $"{basePath}.done";
 
-        // Check if job is already complete (retry after previous timeout)
-        var doneCheck = await ExecInBcPodAsync(client, podName, containerName,
-            $"if (Test-Path '{donePath}') {{ 'DONE' }} else {{ 'PENDING' }}");
+        // Idempotent: if the job file already exists it was already launched.
+        var existing = await ExecInBcPodAsync(client, podName, containerName,
+            $"if (Test-Path '{scriptPath}') {{ 'EXISTS' }} else {{ 'NEW' }}");
+        if (existing.Stdout.Trim() == "EXISTS")
+            return;
 
-        if (doneCheck.Stdout.Trim() == "DONE")
-            return await CollectDetachedResultAsync(client, podName, containerName, basePath, stdoutPath, stderrPath);
+        var scriptBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(script));
+        await ExecInBcPodAsync(client, podName, containerName,
+            $"[IO.File]::WriteAllBytes('{scriptPath}', [Convert]::FromBase64String('{scriptBase64}'))");
 
-        // Check if job is already running (script file exists but no done marker)
-        var runningCheck = await ExecInBcPodAsync(client, podName, containerName,
-            $"if (Test-Path '{scriptPath}') {{ 'RUNNING' }} else {{ 'NEW' }}");
-
-        if (runningCheck.Stdout.Trim() == "NEW")
-        {
-            // First invocation — write script and wrapper, launch detached
-            var scriptBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(script));
-            await ExecInBcPodAsync(client, podName, containerName,
-                $"[IO.File]::WriteAllBytes('{scriptPath}', [Convert]::FromBase64String('{scriptBase64}'))");
-
-            var wrapperScript = $@"
+        var wrapperScript = $@"
 try {{
     . 'C:\run\prompt.ps1' -silent
     & {{ . '{scriptPath}' {scriptParams} }} 2> '{stderrPath}' 6>&1 3>&1 4>&1 5>&1 | Out-File '{stdoutPath}' -Encoding utf8
@@ -916,39 +929,66 @@ try {{
 }} finally {{
     'DONE' | Out-File '{donePath}' -NoNewline
 }}";
-            var wrapperBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(wrapperScript));
-            await ExecInBcPodAsync(client, podName, containerName,
-                $"[IO.File]::WriteAllBytes('{wrapperPath}', [Convert]::FromBase64String('{wrapperBase64}'))");
+        var wrapperBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(wrapperScript));
+        await ExecInBcPodAsync(client, podName, containerName,
+            $"[IO.File]::WriteAllBytes('{wrapperPath}', [Convert]::FromBase64String('{wrapperBase64}'))");
 
-            await ExecInBcPodAsync(client, podName, containerName,
-                $"Start-Process -FilePath 'pwsh' -ArgumentList '-NoProfile','-File','{wrapperPath}' -WindowStyle Hidden");
-        }
-
-        // Wait up to 30 seconds for the script to finish before returning 202
-        for (var i = 0; i < 6; i++)
-        {
-            await Task.Delay(5_000);
-
-            var pollCheck = await ExecInBcPodAsync(client, podName, containerName,
-                $"if (Test-Path '{donePath}') {{ 'DONE' }} else {{ 'PENDING' }}");
-
-            if (pollCheck.Stdout.Trim() == "DONE")
-                return await CollectDetachedResultAsync(client, podName, containerName, basePath, stdoutPath, stderrPath);
-        }
-
-        throw new RetryAfterException(retryMessage, retryAfterSeconds);
+        await ExecInBcPodAsync(client, podName, containerName,
+            $"Start-Process -FilePath 'pwsh' -ArgumentList '-NoProfile','-File','{wrapperPath}' -WindowStyle Hidden");
     }
 
-    private async Task<DetachedJobResult> CollectDetachedResultAsync(
-        Kubernetes client, string podName, string containerName,
-        string basePath, string stdoutPath, string stderrPath)
+    /// <summary>
+    /// Returns the state of a detached job (read-only; does not clean up). When the job has failed
+    /// the captured error text is returned in the tuple's <c>Error</c> element.
+    /// </summary>
+    protected async Task<(DetachedJobState State, string? Error)> GetDetachedJobStatusAsync(
+        Kubernetes client, string podName, string containerName, string jobId)
     {
+        var basePath = DetachedJobBasePath(jobId);
+        var scriptPath = $"{basePath}.ps1";
+        var stderrPath = $"{basePath}.stderr";
+        var donePath = $"{basePath}.done";
+
+        var probe = await ExecInBcPodAsync(client, podName, containerName,
+            $"if (Test-Path '{donePath}') {{ 'DONE' }} elseif (Test-Path '{scriptPath}') {{ 'RUNNING' }} else {{ 'NONE' }}");
+        var state = probe.Stdout.Trim();
+
+        if (state == "RUNNING")
+            return (DetachedJobState.Running, null);
+        if (state == "NONE")
+            return (DetachedJobState.NotFound, null);
+
+        // Done — non-empty stderr means the script failed.
+        var stderrResult = await ExecInBcPodAsync(client, podName, containerName,
+            $"if (Test-Path '{stderrPath}') {{ Get-Content '{stderrPath}' -Raw }} else {{ '' }}");
+        var stderr = stderrResult.Stdout.TrimEnd();
+        return string.IsNullOrWhiteSpace(stderr)
+            ? (DetachedJobState.Complete, null)
+            : (DetachedJobState.Failed, stderr);
+    }
+
+    /// <summary>
+    /// Collects the output of a finished detached job and removes its files (one-shot). Returns
+    /// null when the job is still running or no longer exists.
+    /// </summary>
+    protected async Task<DetachedJobResult?> CollectDetachedJobResultAsync(
+        Kubernetes client, string podName, string containerName, string jobId)
+    {
+        var basePath = DetachedJobBasePath(jobId);
+        var stdoutPath = $"{basePath}.stdout";
+        var stderrPath = $"{basePath}.stderr";
+        var donePath = $"{basePath}.done";
+
+        var doneCheck = await ExecInBcPodAsync(client, podName, containerName,
+            $"if (Test-Path '{donePath}') {{ 'DONE' }} else {{ 'PENDING' }}");
+        if (doneCheck.Stdout.Trim() != "DONE")
+            return null;
+
         var stdoutResult = await ExecInBcPodAsync(client, podName, containerName,
             $"if (Test-Path '{stdoutPath}') {{ Get-Content '{stdoutPath}' -Raw }} else {{ '' }}");
         var stderrResult = await ExecInBcPodAsync(client, podName, containerName,
             $"if (Test-Path '{stderrPath}') {{ Get-Content '{stderrPath}' -Raw }} else {{ '' }}");
 
-        // Clean up all job files
         try
         {
             await ExecInBcPodAsync(client, podName, containerName,
@@ -957,11 +997,5 @@ try {{
         catch { /* best-effort cleanup */ }
 
         return new DetachedJobResult(stdoutResult.Stdout.TrimEnd(), stderrResult.Stdout.TrimEnd());
-    }
-
-    private static string ComputeDetachedJobId(string input)
-    {
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(input));
-        return Convert.ToHexString(hash)[..16].ToLowerInvariant();
     }
 }

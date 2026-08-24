@@ -163,7 +163,6 @@ sealed class TokenProvider
         var token = Environment.GetEnvironmentVariable("GH_TOKEN");
         if (!string.IsNullOrWhiteSpace(token))
             return token;
-
         // 2. gh auth token CLI
         var psi = new ProcessStartInfo
         {

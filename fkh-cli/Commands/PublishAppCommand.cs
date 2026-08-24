@@ -228,67 +228,66 @@ $appInfo | Select-Object Name, Publisher, @{{N='Version';E={{$_.Version.ToString
 
     private async Task<InvokeResult> InvokeScriptAsync(HttpClient httpClient, string backendUrl, TokenProvider tokenProvider, string containerName, string command, bool asJson)
     {
+        string jobId;
+        string jobContainer;
+
+        // ── Launch the script; the backend returns a jobId immediately ────────────
+        try
+        {
+            var token = await tokenProvider.GetTokenAsync();
+            var launchParams = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["name"] = containerName,
+                ["command"] = command,
+            };
+            var (ok, body) = await PostFunctionAsync(httpClient, backendUrl, "InvokeScript", token, launchParams);
+            if (!ok)
+                return new InvokeResult { ExitCode = 1, Output = body };
+
+            using var doc = JsonDocument.Parse(body);
+            jobId = doc.RootElement.TryGetProperty("jobId", out var j) ? j.GetString() ?? "" : "";
+            jobContainer = doc.RootElement.TryGetProperty("container", out var c) ? c.GetString() ?? containerName : containerName;
+            if (string.IsNullOrEmpty(jobId))
+                return new InvokeResult { ExitCode = 1, Output = body };
+        }
+        catch (TaskCanceledException)
+        {
+            return new InvokeResult { ExitCode = 1, Output = "Request timed out.", IsTimeout = true };
+        }
+        catch (HttpRequestException ex)
+        {
+            return new InvokeResult { ExitCode = 1, Output = ex.Message, IsTimeout = true };
+        }
+        catch (Exception ex)
+        {
+            return new InvokeResult { ExitCode = 1, Output = ex.Message };
+        }
+
+        var jobParams = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["name"] = jobContainer,
+            ["jobId"] = jobId,
+        };
+
+        // ── Poll ScriptStatus until the job is no longer running ──────────────────
         while (true)
         {
-            string token;
-            try { token = await tokenProvider.GetTokenAsync(); }
-            catch (Exception ex) { return new InvokeResult { ExitCode = 1, Output = ex.Message }; }
-
             try
             {
-                using var request = new HttpRequestMessage(HttpMethod.Post, $"{backendUrl}/InvokeScript");
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-                AddProtocolHeaders(request);
-                request.Content = new StringContent(
-                    JsonSerializer.Serialize(new FunctionInvokeRequest
-                    {
-                        Parameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                        {
-                            ["name"] = containerName,
-                            ["command"] = command
-                        }
-                    }),
-                    Encoding.UTF8,
-                    "application/json");
+                var token = await tokenProvider.GetTokenAsync();
+                var (ok, body) = await PostFunctionAsync(httpClient, backendUrl, "ScriptStatus", token, jobParams);
+                if (!ok)
+                    return new InvokeResult { ExitCode = 1, Output = body };
 
-                var response = await httpClient.SendAsync(request);
-                var body = await response.Content.ReadAsStringAsync();
-
-                // Handle 202 Accepted (script still running, retry after delay)
-                if (response.StatusCode == System.Net.HttpStatusCode.Accepted)
+                using var doc = JsonDocument.Parse(body);
+                var status = doc.RootElement.TryGetProperty("status", out var s) ? s.GetString() : null;
+                if (string.Equals(status, "Running", StringComparison.OrdinalIgnoreCase))
                 {
-                    var retrySeconds = 10;
-                    if (response.Headers.TryGetValues("Retry-After", out var retryValues))
-                        int.TryParse(retryValues.FirstOrDefault(), out retrySeconds);
-
-                    if (!asJson)
-                        Console.Write(".");
-
-                    await Task.Delay(TimeSpan.FromSeconds(retrySeconds));
+                    if (!asJson) Console.Write(".");
+                    await Task.Delay(TimeSpan.FromSeconds(3));
                     continue;
                 }
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    return new InvokeResult { ExitCode = 1, Output = body };
-                }
-
-                // Extract "output" and "stderr" fields from JSON response
-                try
-                {
-                    using var doc = JsonDocument.Parse(body);
-                    var output = doc.RootElement.TryGetProperty("output", out var outputEl)
-                        ? outputEl.GetString() ?? ""
-                        : body;
-                    var stderr = doc.RootElement.TryGetProperty("stderr", out var stderrEl) && stderrEl.ValueKind != JsonValueKind.Null
-                        ? stderrEl.GetString()
-                        : null;
-                    return new InvokeResult { ExitCode = 0, Output = output, Stderr = stderr };
-                }
-                catch
-                {
-                    return new InvokeResult { ExitCode = 0, Output = body };
-                }
+                break;
             }
             catch (TaskCanceledException)
             {
@@ -299,6 +298,46 @@ $appInfo | Select-Object Name, Publisher, @{{N='Version';E={{$_.Version.ToString
                 return new InvokeResult { ExitCode = 1, Output = ex.Message, IsTimeout = true };
             }
         }
+
+        // ── Fetch the result (one-shot; releases the job on the backend) ──────────
+        try
+        {
+            var token = await tokenProvider.GetTokenAsync();
+            var (ok, body) = await PostFunctionAsync(httpClient, backendUrl, "ScriptResult", token, jobParams);
+            if (!ok)
+                return new InvokeResult { ExitCode = 1, Output = body };
+
+            using var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement;
+            var status = root.TryGetProperty("status", out var s) ? s.GetString() : null;
+            var output = root.TryGetProperty("output", out var o) ? o.GetString() ?? "" : "";
+            var error = root.TryGetProperty("error", out var e) && e.ValueKind == JsonValueKind.String ? e.GetString() : null;
+            return string.Equals(status, "Failure", StringComparison.OrdinalIgnoreCase)
+                ? new InvokeResult { ExitCode = 1, Output = output, Stderr = error }
+                : new InvokeResult { ExitCode = 0, Output = output };
+        }
+        catch (TaskCanceledException)
+        {
+            return new InvokeResult { ExitCode = 1, Output = "Request timed out.", IsTimeout = true };
+        }
+        catch (HttpRequestException ex)
+        {
+            return new InvokeResult { ExitCode = 1, Output = ex.Message, IsTimeout = true };
+        }
+    }
+
+    private async Task<(bool Ok, string Body)> PostFunctionAsync(
+        HttpClient httpClient, string backendUrl, string route, string token, Dictionary<string, string> parameters)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{backendUrl}/{route}");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        AddProtocolHeaders(request);
+        request.Content = new StringContent(
+            JsonSerializer.Serialize(new FunctionInvokeRequest { Parameters = parameters }),
+            Encoding.UTF8, "application/json");
+        var response = await httpClient.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+        return (response.IsSuccessStatusCode, body);
     }
 
     private sealed class InvokeResult

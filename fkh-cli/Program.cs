@@ -404,6 +404,21 @@ try
 
         if (response.IsSuccessStatusCode)
         {
+            // Detached script jobs return { jobId, container, status } — poll to completion
+            // (or just print the jobId with --nowait) rather than treat it as a final result.
+            if (IsJobLaunchFunction(function.Name) && TryGetJobLaunch(body, out var jobId, out var jobContainer))
+            {
+                if (parsed.NoWait)
+                {
+                    if (parsed.AsJson)
+                        Console.WriteLine(body);
+                    else
+                        Console.WriteLine($"Job {jobId} started in container '{jobContainer}'. Check with: fkh scriptstatus --name {jobContainer} --jobId {jobId}");
+                    return 0;
+                }
+                return await PollScriptJobAsync(client, settings, tokenProvider, jobContainer, jobId, parsed, cts);
+            }
+
             // Handle binary file responses (e.g. GetContainerEventLog returns base64-encoded .evtx)
             if (TrySaveBinaryResponse(body, parsed, parsed.Output))
             {
@@ -571,6 +586,137 @@ static string ResolveEndpoint(string route, CliSettings settings)
 
     backendUrl = backendUrl.TrimEnd('/');
     return $"{backendUrl}/{route}";
+}
+
+// Detached script jobs are launched by these functions; their { jobId, container } response
+// is polled via ScriptStatus/ScriptResult rather than printed as a final result.
+static bool IsJobLaunchFunction(string name) =>
+    string.Equals(name, "InvokeScript", StringComparison.OrdinalIgnoreCase)
+    || string.Equals(name, "PublishAppsFromBuild", StringComparison.OrdinalIgnoreCase)
+    || string.Equals(name, "ImportTestToolkit", StringComparison.OrdinalIgnoreCase)
+    || string.Equals(name, "MountTenant", StringComparison.OrdinalIgnoreCase);
+
+static bool TryGetJobLaunch(string body, out string jobId, out string container)
+{
+    jobId = "";
+    container = "";
+    try
+    {
+        using var doc = JsonDocument.Parse(body);
+        var root = doc.RootElement;
+        if (root.ValueKind != JsonValueKind.Object) return false;
+        if (!root.TryGetProperty("jobId", out var j) || j.ValueKind != JsonValueKind.String) return false;
+        if (!root.TryGetProperty("container", out var c) || c.ValueKind != JsonValueKind.String) return false;
+        jobId = j.GetString() ?? "";
+        container = c.GetString() ?? "";
+        return jobId.Length > 0 && container.Length > 0;
+    }
+    catch
+    {
+        return false;
+    }
+}
+
+static string? GetJsonProp(string body, string name)
+{
+    try
+    {
+        using var doc = JsonDocument.Parse(body);
+        return doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String
+            ? v.GetString()
+            : null;
+    }
+    catch
+    {
+        return null;
+    }
+}
+
+static async Task<(bool Ok, string Body)> PostFunctionAsync(
+    HttpClient client, string endpoint, string token, Dictionary<string, string> parameters, CancellationToken ct)
+{
+    using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+    ClientCommand.AddProtocolHeaders(request);
+    request.Content = new StringContent(
+        JsonSerializer.Serialize(new FunctionInvokeRequest { Parameters = parameters }),
+        Encoding.UTF8, "application/json");
+    var response = await client.SendAsync(request, ct);
+    var body = await response.Content.ReadAsStringAsync(ct);
+    return (response.IsSuccessStatusCode, body);
+}
+
+// Polls a detached script job to completion and prints its result. Returns the process exit code.
+static async Task<int> PollScriptJobAsync(
+    HttpClient client, CliSettings settings, TokenProvider tokenProvider,
+    string container, string jobId, ParsedArgs parsed, CancellationTokenSource cts)
+{
+    var statusEndpoint = ResolveEndpoint("ScriptStatus", settings);
+    var resultEndpoint = ResolveEndpoint("ScriptResult", settings);
+    var jobParams = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["name"] = container,
+        ["jobId"] = jobId,
+    };
+    var printedDot = false;
+
+    while (true)
+    {
+        if (cts.IsCancellationRequested) return 1;
+
+        string token;
+        try { token = await tokenProvider.GetTokenAsync(); }
+        catch (Exception ex) { Console.Error.WriteLine($"{Ansi.Red}{ex.Message}{Ansi.Reset}"); return 1; }
+
+        var (ok, statusBody) = await PostFunctionAsync(client, statusEndpoint, token, jobParams, cts.Token);
+        if (!ok)
+        {
+            if (printedDot && !parsed.AsJson) Console.WriteLine();
+            Console.Error.WriteLine($"{Ansi.Red}Failed to query job status: {statusBody}{Ansi.Reset}");
+            return 1;
+        }
+
+        if (string.Equals(GetJsonProp(statusBody, "status"), "Running", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!parsed.AsJson) { Console.Write("."); printedDot = true; }
+            try { await Task.Delay(TimeSpan.FromSeconds(3), cts.Token); }
+            catch (TaskCanceledException) { return 1; }
+            continue;
+        }
+        break;
+    }
+
+    if (printedDot && !parsed.AsJson) Console.WriteLine();
+
+    // Fetch the result (one-shot; the backend releases the job afterwards).
+    string resultToken;
+    try { resultToken = await tokenProvider.GetTokenAsync(); }
+    catch (Exception ex) { Console.Error.WriteLine($"{Ansi.Red}{ex.Message}{Ansi.Reset}"); return 1; }
+
+    var (rok, resultBody) = await PostFunctionAsync(client, resultEndpoint, resultToken, jobParams, cts.Token);
+    if (!rok)
+    {
+        Console.Error.WriteLine($"{Ansi.Red}Failed to fetch job result: {resultBody}{Ansi.Reset}");
+        return 1;
+    }
+
+    var resultStatus = GetJsonProp(resultBody, "status") ?? "";
+    if (parsed.AsJson)
+    {
+        Console.WriteLine(resultBody);
+        return string.Equals(resultStatus, "Failure", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+    }
+
+    var output = GetJsonProp(resultBody, "output") ?? "";
+    if (string.Equals(resultStatus, "Failure", StringComparison.OrdinalIgnoreCase))
+    {
+        if (!string.IsNullOrWhiteSpace(output)) Console.WriteLine(output);
+        Console.Error.WriteLine($"{Ansi.Red}Script failed: {GetJsonProp(resultBody, "error")}{Ansi.Reset}");
+        return 1;
+    }
+
+    if (!string.IsNullOrWhiteSpace(output)) Console.WriteLine(output);
+    return 0;
 }
 
 static async Task<FunctionCatalogResponse> GetFunctionCatalogAsync(string? backendUrl)

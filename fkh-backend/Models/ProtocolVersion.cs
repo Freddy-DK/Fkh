@@ -29,7 +29,7 @@ public static class ProtocolVersionConfig
     /// SupportedClientVersions.json in the repository root, listing which client
     /// versions supported that protocol version.
     /// </summary>
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
 
     /// <summary>Default client name when none is specified in the request.</summary>
     public const string DefaultClient = "VS Code extension";

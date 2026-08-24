@@ -104,42 +104,94 @@ sealed class PoorMansTerminal
     {
         try
         {
-            var token = await _tokenProvider.GetTokenAsync();
             using var httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
-            var request = new HttpRequestMessage(HttpMethod.Post, $"{_backendUrl}/InvokeScript");
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            ClientCommand.AddProtocolHeaders(request);
-            request.Content = new StringContent(
-                JsonSerializer.Serialize(new FunctionInvokeRequest
+
+            // Launch the script; the backend returns a jobId immediately.
+            var launchToken = await _tokenProvider.GetTokenAsync();
+            var (launchOk, launchBody) = await PostAsync(httpClient, "InvokeScript", launchToken,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                 {
-                    Parameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                    {
-                        ["name"] = _containerName,
-                        ["command"] = command,
-                    }
-                }),
-                Encoding.UTF8, "application/json");
-
-            var response = await httpClient.SendAsync(request);
-            var body = await response.Content.ReadAsStringAsync();
-
-            if (!response.IsSuccessStatusCode)
+                    ["name"] = _containerName,
+                    ["command"] = command,
+                });
+            if (!launchOk)
             {
-                Console.Error.WriteLine($"{Ansi.Red}Error ({(int)response.StatusCode}): {body}{Ansi.Reset}");
+                Console.Error.WriteLine($"{Ansi.Red}Error: {launchBody}{Ansi.Reset}");
                 return null;
             }
 
-            using var doc = JsonDocument.Parse(body);
-            var root = doc.RootElement;
-            var output = root.TryGetProperty("output", out var op) ? op.GetString() ?? "" : "";
-            var stderr = root.TryGetProperty("stderr", out var ep) ? ep.GetString() : null;
-            return new InvokeResult(output, stderr);
+            string jobId;
+            string container;
+            using (var doc = JsonDocument.Parse(launchBody))
+            {
+                var root = doc.RootElement;
+                jobId = root.TryGetProperty("jobId", out var j) ? j.GetString() ?? "" : "";
+                container = root.TryGetProperty("container", out var c) ? c.GetString() ?? _containerName : _containerName;
+            }
+            if (string.IsNullOrEmpty(jobId))
+            {
+                Console.Error.WriteLine($"{Ansi.Red}Error: {launchBody}{Ansi.Reset}");
+                return null;
+            }
+
+            var jobParams = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["name"] = container,
+                ["jobId"] = jobId,
+            };
+
+            // Poll until the job is no longer running.
+            while (true)
+            {
+                var token = await _tokenProvider.GetTokenAsync();
+                var (ok, body) = await PostAsync(httpClient, "ScriptStatus", token, jobParams);
+                if (!ok)
+                {
+                    Console.Error.WriteLine($"{Ansi.Red}Error: {body}{Ansi.Reset}");
+                    return null;
+                }
+                using var doc = JsonDocument.Parse(body);
+                var status = doc.RootElement.TryGetProperty("status", out var s) ? s.GetString() : null;
+                if (!string.Equals(status, "Running", StringComparison.OrdinalIgnoreCase))
+                    break;
+                await Task.Delay(TimeSpan.FromSeconds(1));
+            }
+
+            // Fetch the result (one-shot).
+            var resultToken = await _tokenProvider.GetTokenAsync();
+            var (rok, resultBody) = await PostAsync(httpClient, "ScriptResult", resultToken, jobParams);
+            if (!rok)
+            {
+                Console.Error.WriteLine($"{Ansi.Red}Error: {resultBody}{Ansi.Reset}");
+                return null;
+            }
+
+            using (var doc = JsonDocument.Parse(resultBody))
+            {
+                var root = doc.RootElement;
+                var output = root.TryGetProperty("output", out var op) ? op.GetString() ?? "" : "";
+                var error = root.TryGetProperty("error", out var ep) && ep.ValueKind == JsonValueKind.String ? ep.GetString() : null;
+                return new InvokeResult(output, error);
+            }
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"{Ansi.Red}{ex.Message}{Ansi.Reset}");
             return null;
         }
+    }
+
+    private async Task<(bool Ok, string Body)> PostAsync(HttpClient httpClient, string route, string token, Dictionary<string, string> parameters)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{_backendUrl}/{route}");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        ClientCommand.AddProtocolHeaders(request);
+        request.Content = new StringContent(
+            JsonSerializer.Serialize(new FunctionInvokeRequest { Parameters = parameters }),
+            Encoding.UTF8, "application/json");
+        var response = await httpClient.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+        return (response.IsSuccessStatusCode, body);
     }
 
     private record InvokeResult(string Output, string? Stderr);

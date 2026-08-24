@@ -42,18 +42,10 @@ public class FkhMountTenant : FkhServiceBase
 
         Logger.LogInformation("Mounting tenant '{Tenant}' with database '{Database}' in container '{Container}'...", tenant, databaseName, containerName);
 
-        var result = await RunDetachedInBcPodAsync(
-            client, podName, bcContainerName,
-            jobPrefix: "fkh-mount",
-            jobIdInput: $"{containerName}|{tenant}|{databaseName}",
-            script: mountScript,
-            retryAfterSeconds: 10,
-            retryMessage: "Mounting tenant — still running...");
+        var jobId = NewDetachedJobId();
+        await LaunchDetachedJobAsync(client, podName, bcContainerName, jobId, mountScript);
 
-        if (!string.IsNullOrWhiteSpace(result.Stderr))
-            throw new InvalidOperationException($"Failed to mount tenant '{tenant}' in container '{containerName}': {result.Stderr}");
-
-        Logger.LogInformation("Tenant '{Tenant}' mounted successfully in container '{Container}'.", tenant, containerName);
-        return new { message = $"Tenant '{tenant}' mounted with database '{databaseName}' in container '{containerName}'.", containerName, tenant, databaseName };
+        Logger.LogInformation("Launched tenant mount job '{JobId}' for tenant '{Tenant}' in container '{Container}'.", jobId, tenant, containerName);
+        return new { JobId = jobId, Container = containerName, Status = "Running" };
     }
 }

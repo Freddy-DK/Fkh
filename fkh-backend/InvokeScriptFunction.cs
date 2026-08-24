@@ -27,6 +27,6 @@ public class InvokeScriptFunction : FunctionBase
         {
             return ExecuteWithFileAsync(req, _logger, _gitHub, "InvokeScript", _invokeScript.InvokeScriptWithFileAsync);
         }
-        return ExecuteAsync(req, _logger, _gitHub, "InvokeScript", _invokeScript.InvokeScriptAsync);
+        return ExecuteAsync(req, _logger, _gitHub, "InvokeScript", p => _invokeScript.InvokeScriptAsync(p));
     }
 }

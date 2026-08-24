@@ -842,6 +842,73 @@ function formatJsonResult(obj: unknown, indent = 0): string {
   return String(obj);
 }
 
+// Detached script jobs are launched by these functions; their { jobId, container } response
+// is polled via ScriptStatus/ScriptResult instead of being treated as a final result.
+const JOB_LAUNCH_FUNCTIONS = new Set(['InvokeScript', 'PublishAppsFromBuild', 'ImportTestToolkit', 'MountTenant']);
+
+function isJobLaunch(functionName: string, result: Record<string, unknown>): boolean {
+  return JOB_LAUNCH_FUNCTIONS.has(functionName)
+    && typeof result.jobId === 'string' && result.jobId.length > 0
+    && typeof result.container === 'string' && result.container.length > 0;
+}
+
+async function postFunction(
+  baseUrl: string,
+  session: { accessToken: string },
+  route: string,
+  parameters: Record<string, string>,
+): Promise<Response> {
+  const body: FunctionInvokeRequest = { parameters };
+  return fetch(`${baseUrl}/${route}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.accessToken}`,
+      'X-Fkh-Protocol-Version': String(PROTOCOL_VERSION),
+      'X-Fkh-Client': CLIENT_APP,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+// Polls a detached script job to completion and returns its final result record.
+async function pollScriptJob(
+  baseUrl: string,
+  session: { accessToken: string },
+  container: string,
+  jobId: string,
+  functionName: string,
+  progress: vscode.Progress<{ message?: string }>,
+  cancelToken: vscode.CancellationToken,
+): Promise<Record<string, unknown>> {
+  const jobParams = { name: container, jobId };
+
+  for (;;) {
+    if (cancelToken.isCancellationRequested) {
+      return { status: 'Cancelled', jobId, container };
+    }
+    const statusRes = await postFunction(baseUrl, session, 'ScriptStatus', jobParams);
+    if (!statusRes.ok) {
+      throw new Error(`ScriptStatus failed (${statusRes.status}): ${await statusRes.text()}`);
+    }
+    const status = await statusRes.json() as Record<string, unknown>;
+    if (String(status.status) !== 'Running') { break; }
+    progress.report({ message: `${functionName} running...` });
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, 3000);
+      cancelToken.onCancellationRequested(() => { clearTimeout(timer); resolve(); });
+    });
+  }
+
+  const resultRes = await postFunction(baseUrl, session, 'ScriptResult', jobParams);
+  if (!resultRes.ok) {
+    throw new Error(`ScriptResult failed (${resultRes.status}): ${await resultRes.text()}`);
+  }
+  const result = await resultRes.json() as Record<string, unknown>;
+  logOutput(`[${functionName}] ${formatJsonResult(result)}`, String(result.status) === 'Failure');
+  return result;
+}
+
 async function invokeFunctionByName(functionName: string, prefilled: Record<string, string> = {}, context?: string, prefilledDefaults: Record<string, string> = {}): Promise<Record<string, unknown> | undefined> {
   const catalog = await getFunctionCatalog();
   if (!catalog) { return; }
@@ -950,8 +1017,16 @@ async function invokeFunctionByName(functionName: string, prefilled: Record<stri
 
           if (response.ok) {
             const result = await response.json() as Record<string, unknown>;
-            logOutput(`[${definition.name}] ${formatJsonResult(result)}`);
-            invokeResult = result;
+            if (isJobLaunch(definition.name, result)) {
+              // Launch-and-poll: the backend returned a jobId; poll it to completion.
+              invokeResult = await pollScriptJob(
+                getBackendUrl() ?? '', session,
+                String(result.container), String(result.jobId),
+                definition.name, progress, cancelToken);
+            } else {
+              logOutput(`[${definition.name}] ${formatJsonResult(result)}`);
+              invokeResult = result;
+            }
           } else {
             const responseText = await response.text();
             const error = response.status === 401 || response.status === 403
