@@ -203,7 +203,7 @@ public static class BcArtifactHelper
     private static Version GetArtifactVersion(string artifactUrl)
         => Version.Parse(artifactUrl.Split('/')[4]);
 
-    private static string GetArtifactCountry(string artifactUrl)
+    internal static string GetArtifactCountry(string artifactUrl)
         => artifactUrl.Split('?')[0].Split('/')[5];
 
     /// <summary>

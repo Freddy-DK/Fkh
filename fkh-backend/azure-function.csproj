@@ -28,6 +28,9 @@
     <PackageReference Include="Microsoft.Graph" Version="6.2.0" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Fkh.Backend.UnitTests" />
+  </ItemGroup>
+  <ItemGroup>
     <None Update="scripts\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

@@ -72,7 +72,7 @@ Clients (VSIX, CLI, Web)
 | Infra | `terraform apply` or `deploy.ps1` | `DeployFkhFullStack.yml` |
 | MSSQL image | `docker build` in `mssql-fts/` | Full-stack workflow pushes to ACR |
 
-There are **no automated unit test projects** in this repository. Validate via local dev, CI builds, and deployed environments.
+Automated tests live in [`tests/`](tests/): `tests/unit/` (backend + CLI unit tests, run on every PR via `Tests.yml`) and `tests/e2e/` (CLI-driven end-to-end tests against a deployed backend, run manually via `E2E.yml`). They use xUnit v3 (Microsoft.Testing.Platform) — run a project with `dotnet run --project <testproj> -c Release` (not `dotnet test`, which is unreliable with MTP on the .NET 10 SDK).
 
 ## Coding standards (repo-wide)
 

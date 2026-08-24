@@ -1,0 +1,56 @@
+name: Tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'fkh-backend/**'
+      - 'fkh-cli/**'
+      - 'tests/unit/**'
+      - 'global.json'
+      - '.github/workflows/Tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'fkh-backend/**'
+      - 'fkh-cli/**'
+      - 'tests/unit/**'
+      - 'global.json'
+      - '.github/workflows/Tests.yml'
+  workflow_dispatch:
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Backend unit tests
+        run: dotnet run --project tests/unit/Fkh.Backend.UnitTests/Fkh.Backend.UnitTests.csproj -c Release -- -result-trx TestResults/backend.trx
+
+      - name: CLI unit tests
+        if: always()
+        run: dotnet run --project tests/unit/Fkh.Cli.UnitTests/Fkh.Cli.UnitTests.csproj -c Release -- -result-trx TestResults/cli.trx
+
+      - name: Publish test summary
+        if: always()
+        shell: pwsh
+        run: ./tests/Write-TestSummary.ps1 -Title 'Unit test results'
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: unit-test-results
+          path: TestResults/*.trx
+          if-no-files-found: ignore

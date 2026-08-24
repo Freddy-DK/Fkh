@@ -91,7 +91,7 @@ public abstract class FunctionBase
         return req.Url.Host;
     }
 
-    private static bool IsIpBlocked(string ip)
+    internal static bool IsIpBlocked(string ip)
     {
         if (!FailedAttempts.TryGetValue(ip, out var record))
             return false;
@@ -106,7 +106,7 @@ public abstract class FunctionBase
         return record.Count >= MaxFailedAttempts;
     }
 
-    private static void RecordFailedAttempt(string ip)
+    internal static void RecordFailedAttempt(string ip)
     {
         FailedAttempts.AddOrUpdate(ip,
             _ => new FailedAttemptRecord { Count = 1 },
@@ -126,7 +126,7 @@ public abstract class FunctionBase
             });
     }
 
-    private static void ClearFailedAttempts(string ip)
+    internal static void ClearFailedAttempts(string ip)
     {
         FailedAttempts.TryRemove(ip, out _);
     }
@@ -1142,7 +1142,7 @@ secretName = value[1..^1];
         return response;
     }
 
-    private static List<OrgTeamConfig> LoadOrgTeamConfig(string envVarName, bool required = true)
+    internal static List<OrgTeamConfig> LoadOrgTeamConfig(string envVarName, bool required = true)
     {
         var raw = Environment.GetEnvironmentVariable(envVarName);
         if (string.IsNullOrWhiteSpace(raw))
@@ -1159,7 +1159,7 @@ secretName = value[1..^1];
             ?? throw new InvalidOperationException($"Failed to parse {envVarName}.");
     }
 
-    private static List<AllowedUserConfig> LoadAllowedUsers()
+    internal static List<AllowedUserConfig> LoadAllowedUsers()
     {
         var raw = Environment.GetEnvironmentVariable("ALLOWED_USERS");
         if (string.IsNullOrWhiteSpace(raw))
@@ -1183,7 +1183,7 @@ secretName = value[1..^1];
         return users;
     }
 
-    private static List<string> LoadStringList(string envVarName)
+    internal static List<string> LoadStringList(string envVarName)
     {
         var raw = Environment.GetEnvironmentVariable(envVarName);
         if (string.IsNullOrWhiteSpace(raw))
