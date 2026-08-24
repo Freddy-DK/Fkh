@@ -47,14 +47,15 @@ public class StandaloneFunctionTests : E2ETest
         var value = Unique("val");
         try
         {
-            FkhCli.RunJson(Op, "SetSecret", "--name", name, "--secret", value);
+            // --allusers sets an org-wide secret (personal secrets are unavailable under OIDC).
+            FkhCli.RunJson(Op, "SetSecret", "--name", name, "--secret", value, "--allusers");
             FkhCli.RunJson(Op, "GetSecret", "--name", name);
             FkhCli.RunJson(Op, "ListSecrets");
         }
         finally
         {
             // Empty value removes the secret.
-            FkhCli.Run(Op, "SetSecret", "--name", name, "--secret", "");
+            FkhCli.Run(Op, "SetSecret", "--name", name, "--secret", "", "--allusers");
         }
     }
 
