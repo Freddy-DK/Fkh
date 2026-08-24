@@ -19,17 +19,21 @@ public sealed class E2EEnvironment
 
     private static void EnsureClusterRunning()
     {
-        if (GetPowerState() is "Running")
+        var state = GetPowerState();
+        E2ELog.Line($"E2E setup: cluster power state = {state ?? "unknown"}.");
+        if (state is "Running")
             return;
 
         // `fkh startfkh` is idempotent and blocks (via the CLI 202/Retry-After loop) until the
         // start operation completes; allow generous time for AKS node pools to spin up.
+        E2ELog.Line("E2E setup: cluster not running — invoking StartFkh.");
         var start = FkhCli.Run(TimeSpan.FromMinutes(20), "StartFkh");
         if (start.ExitCode != 0)
             throw new InvalidOperationException(
                 $"Failed to start the Fkh cluster for E2E tests.\nSTDOUT:\n{start.StdOut}\nSTDERR:\n{start.StdErr}");
 
         WaitUntilRunning(TimeSpan.FromMinutes(15));
+        E2ELog.Line("E2E setup: cluster is running.");
     }
 
     private static void WaitUntilRunning(TimeSpan timeout)
@@ -37,7 +41,9 @@ public sealed class E2EEnvironment
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
         {
-            if (GetPowerState() is "Running")
+            var state = GetPowerState();
+            E2ELog.Line($"E2E setup: waiting for cluster to run (state = {state ?? "unknown"}).");
+            if (state is "Running")
                 return;
             Thread.Sleep(TimeSpan.FromSeconds(30));
         }

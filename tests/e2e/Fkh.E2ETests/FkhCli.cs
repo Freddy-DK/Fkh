@@ -28,6 +28,9 @@ internal static class FkhCli
         if (E2EConfig.UseOidc)
             fullArgs.Add("--useOIDC");
 
+        var command = args.Length > 0 ? args[0] : "(none)";
+        E2ELog.Line($"fkh {Mask(args)}  (timeout {timeout:g})");
+
         var psi = new ProcessStartInfo
         {
             FileName = Invocation.Exe,
@@ -45,24 +48,63 @@ internal static class FkhCli
         process.OutputDataReceived += (_, e) => { if (e.Data is not null) stdout.AppendLine(e.Data); };
         process.ErrorDataReceived += (_, e) => { if (e.Data is not null) stderr.AppendLine(e.Data); };
 
+        var stopwatch = Stopwatch.StartNew();
         process.Start();
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
+        // Long operations (image pulls, container creation) can run for a long time with no output;
+        // emit a heartbeat so a stalled/slow step is visible in the test log.
+        using var heartbeat = new Timer(
+            _ => E2ELog.Line($"  ... still running '{command}' ({stopwatch.Elapsed:hh\\:mm\\:ss} elapsed)"),
+            null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+
         if (!process.WaitForExit((int)timeout.TotalMilliseconds))
         {
             try { process.Kill(entireProcessTree: true); } catch { /* best effort */ }
-            throw new TimeoutException($"fkh {string.Join(' ', args)} timed out after {timeout}.");
+            E2ELog.Line($"  '{command}' TIMED OUT after {timeout:g}");
+            throw new TimeoutException($"fkh {command} timed out after {timeout}.");
         }
         process.WaitForExit(); // flush async buffers
+        stopwatch.Stop();
+
+        E2ELog.Line($"  '{command}' -> exit {process.ExitCode} in {stopwatch.Elapsed:hh\\:mm\\:ss}");
+        if (process.ExitCode != 0)
+        {
+            if (stderr.Length > 0) E2ELog.Line($"  stderr: {Truncate(stderr.ToString())}");
+            if (stdout.Length > 0) E2ELog.Line($"  stdout: {Truncate(stdout.ToString())}");
+        }
 
         return new CliResult(process.ExitCode, stdout.ToString(), stderr.ToString());
     }
 
-    // Runs the command, asserts success, and returns the parsed JSON stdout.
-    public static JsonElement RunJson(params string[] args)
+    // Renders args for logging, masking values of secret-bearing parameters.
+    private static string Mask(string[] args)
     {
-        var result = Run(args);
+        var parts = new List<string>(args.Length);
+        for (var i = 0; i < args.Length; i++)
+        {
+            parts.Add(args[i]);
+            var name = args[i].TrimStart('-').ToLowerInvariant();
+            if (i + 1 < args.Length &&
+                (name.Contains("password") || name.Contains("secret") || name.Contains("token")))
+            {
+                parts.Add("***");
+                i++;
+            }
+        }
+        return string.Join(' ', parts);
+    }
+
+    private static string Truncate(string value, int max = 2000)
+        => value.Length <= max ? value.Trim() : value[..max].Trim() + " …(truncated)";
+
+    // Runs the command, asserts success, and returns the parsed JSON stdout.
+    public static JsonElement RunJson(params string[] args) => RunJson(TimeSpan.FromMinutes(5), args);
+
+    public static JsonElement RunJson(TimeSpan timeout, params string[] args)
+    {
+        var result = Run(timeout, args);
         if (result.ExitCode != 0)
             throw new Xunit.Sdk.XunitException(
                 $"fkh {string.Join(' ', args)} exited with {result.ExitCode}.\nSTDOUT:\n{result.StdOut}\nSTDERR:\n{result.StdErr}");
