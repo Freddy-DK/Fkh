@@ -153,6 +153,49 @@ public class StandaloneFunctionTests : E2ETest
         }
     }
 
+    [Fact]
+    public void Large_file_round_trips_and_matches_hash()
+    {
+        RequireExtensive();
+
+        // ~2.5 GiB by default; override with FKH_E2E_LARGE_FILE_BYTES to run smaller on constrained disks.
+        var sizeBytes = long.TryParse(Environment.GetEnvironmentVariable("FKH_E2E_LARGE_FILE_BYTES"), out var s)
+            ? s
+            : 2_684_354_560L;
+
+        var name = Unique("e2ebig");
+        const string version = "1.0";
+        var local = Path.Combine(Path.GetTempPath(), $"{name}.bin");
+        var download = Path.Combine(Path.GetTempPath(), $"{name}-dl.bin");
+        var big = TimeSpan.FromMinutes(60);
+
+        var removed = false;
+        try
+        {
+            E2ELog.Line($"Generating {sizeBytes:N0}-byte random file for large-file round-trip.");
+            var expectedHash = E2EFiles.WriteRandomFile(local, sizeBytes);
+            E2ELog.Line($"Generated (SHA256 {expectedHash}); uploading.");
+
+            FkhCli.Run(big, "UploadFile", "--localPath", local, "--FileName", name, "--FileVersion", version);
+            FkhCli.Run(big, "DownloadFile", "--file", $"{name}/{version}", "--output", download);
+
+            Assert.True(File.Exists(download), "Downloaded file was not written.");
+            Assert.Equal(sizeBytes, new FileInfo(download).Length);
+            Assert.Equal(expectedHash, E2EFiles.ComputeSha256(download));
+            E2ELog.Line("Large file downloaded and hash matches.");
+
+            var removal = FkhCli.Run(Op, "RemoveFile", "--file", $"{name}/{version}", "--confirm");
+            removed = removal.ExitCode == 0;
+            Assert.True(removed, $"RemoveFile failed: {removal.StdErr}");
+        }
+        finally
+        {
+            if (!removed) FkhCli.Run(Op, "RemoveFile", "--file", $"{name}/{version}", "--confirm");
+            if (File.Exists(local)) File.Delete(local);
+            if (File.Exists(download)) File.Delete(download);
+        }
+    }
+
     // ── Cluster-wide or heavyweight functions: present for visibility, skipped to protect the
     // shared environment. Exercise these manually against a disposable deployment.
 

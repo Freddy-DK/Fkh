@@ -112,6 +112,34 @@ public class ContainerFunctionTests : E2ETest, IClassFixture<ContainerFixture>
     }
 
     [Fact]
+    public void Client_copy_commands_round_trip_a_file_and_match_content()
+    {
+        RequireContainer();
+        const long sizeBytes = 20L * 1024 * 1024; // 20 MiB
+        var local = Path.Combine(Path.GetTempPath(), $"{Unique("e2e")}.bin");
+        var download = Path.Combine(Path.GetTempPath(), $"{Unique("e2e")}-dl.bin");
+        var expectedHash = E2EFiles.WriteRandomFile(local, sizeBytes);
+        try
+        {
+            const string remote = "C:\\run\\clientcopy.bin";
+            var up = FkhCli.Run(Op, "copytocontainer", "--name", Name, "--localFilename", local, "--containerFilename", remote);
+            Assert.True(up.ExitCode == 0, $"copytocontainer failed: {up.StdErr}");
+
+            var down = FkhCli.Run(Op, "copyfromcontainer", "--name", Name, "--containerFilename", remote, "--localFilename", download);
+            Assert.True(down.ExitCode == 0, $"copyfromcontainer failed: {down.StdErr}");
+
+            Assert.True(File.Exists(download), "copyfromcontainer did not write the local file.");
+            Assert.Equal(sizeBytes, new FileInfo(download).Length);
+            Assert.Equal(expectedHash, E2EFiles.ComputeSha256(download));
+        }
+        finally
+        {
+            if (File.Exists(local)) File.Delete(local);
+            if (File.Exists(download)) File.Delete(download);
+        }
+    }
+
+    [Fact]
     public void AutoStop_can_be_set_extended_and_cleared()
     {
         RequireContainer();
