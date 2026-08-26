@@ -36,7 +36,9 @@ jobs:
             10.0.x
 
       - name: Backend unit tests
-        run: dotnet run --project tests/unit/Fkh.Backend.UnitTests/Fkh.Backend.UnitTests.csproj -c Release -- -result-trx TestResults/backend.trx
+        run: |
+          mkdir -p TestResults
+          dotnet run --project tests/unit/Fkh.Backend.UnitTests/Fkh.Backend.UnitTests.csproj -c Release -- -result-trx TestResults/backend.trx
 
       - name: CLI unit tests
         if: always()
