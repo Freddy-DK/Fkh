@@ -18,6 +18,34 @@ public class ClientIpTests
     }
 
     [Fact]
+    public void Keeps_bare_ipv6_intact()
+    {
+        Assert.Equal("2001:db8::1", FunctionBase.ExtractClientIp(["2001:db8::1"], "fallback"));
+    }
+
+    [Fact]
+    public void Strips_port_from_bracketed_ipv6()
+    {
+        Assert.Equal("2001:db8::1", FunctionBase.ExtractClientIp(["[2001:db8::1]:54321"], "fallback"));
+    }
+
+    [Fact]
+    public void Unwraps_bracketed_ipv6_without_port()
+    {
+        Assert.Equal("2001:db8::1", FunctionBase.ExtractClientIp(["[2001:db8::1]"], "fallback"));
+    }
+
+    [Fact]
+    public void Ipv6_key_is_stable_across_changing_source_ports()
+    {
+        // The source port changes per connection; the brute-force key must not.
+        var a = FunctionBase.ExtractClientIp(["[2001:db8::1]:11111"], "fallback");
+        var b = FunctionBase.ExtractClientIp(["[2001:db8::1]:22222"], "fallback");
+        Assert.Equal(a, b);
+        Assert.Equal("2001:db8::1", a);
+    }
+
+    [Fact]
     public void Uses_last_across_multiple_header_values()
     {
         Assert.Equal("203.0.113.9", FunctionBase.ExtractClientIp(["1.1.1.1", "2.2.2.2", "203.0.113.9"], "fallback"));

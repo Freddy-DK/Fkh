@@ -88,16 +88,26 @@ public abstract class FunctionBase
             var parts = string.Join(',', forwardedForValues)
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             if (parts.Length > 0)
-            {
-                var ip = parts[^1];
-                // Strip port if present (e.g. "1.2.3.4:12345"); leave bracketed IPv6 addresses intact.
-                var colonIdx = ip.LastIndexOf(':');
-                if (colonIdx > 0 && !ip.Contains(']'))
-                    ip = ip[..colonIdx];
-                return ip;
-            }
+                return StripPort(parts[^1]);
         }
         return fallbackHost;
+    }
+
+    // Returns the address without any trailing port, so the same client always maps to one key
+    // regardless of the changing source port. Handles IPv4, "[IPv6]:port", bracketed and bare IPv6.
+    private static string StripPort(string address)
+    {
+        // Bracketed IPv6 ("[::1]" or "[::1]:443") — the address is between the brackets.
+        if (address.StartsWith('['))
+        {
+            var end = address.IndexOf(']');
+            return end > 0 ? address[1..end] : address;
+        }
+        // A single colon means IPv4 with a port ("1.2.3.4:443"); more than one means bare IPv6 ("::1").
+        var firstColon = address.IndexOf(':');
+        if (firstColon > 0 && address.IndexOf(':', firstColon + 1) < 0)
+            return address[..firstColon];
+        return address;
     }
 
     internal static bool IsIpBlocked(string ip)
