@@ -11,7 +11,9 @@ public sealed class E2EEnvironment
 {
     public E2EEnvironment()
     {
-        if (!E2EConfig.IsConfigured)
+        // Only extensive runs mutate infrastructure; starting a stopped AKS cluster incurs cost, so
+        // read-only runs must not trigger it.
+        if (!E2EConfig.IsConfigured || !E2EConfig.Extensive)
             return;
 
         EnsureClusterRunning();

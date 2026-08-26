@@ -13,6 +13,12 @@ permissions:
   id-token: write
   contents: read
 
+# Serialize runs against a given backend: the suite performs cluster-wide grants/revocations,
+# settings changes, and destructive cleanup, so concurrent runs would invalidate each other.
+concurrency:
+  group: fkh-e2e-${{ vars.FKH_E2E_BACKEND_URL }}
+  cancel-in-progress: false
+
 jobs:
   e2e:
     runs-on: ubuntu-latest

@@ -118,7 +118,7 @@ internal static class FkhCli
         catch (JsonException ex)
         {
             throw new Xunit.Sdk.XunitException(
-                $"fkh {string.Join(' ', args)} did not return JSON: {ex.Message}\nSTDOUT:\n{result.StdOut}");
+                $"fkh {Mask(args)} did not return JSON: {ex.Message}\nSTDOUT:\n{result.StdOut}");
         }
     }
 
