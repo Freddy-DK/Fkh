@@ -24,7 +24,7 @@ else {
             $total = [int]$counters.total
             $executed = [int]$counters.executed
             $passed = [int]$counters.passed
-            $failed = [int]$counters.failed
+            $failed = [int]$counters.failed + [int]$counters.error
             $skipped = [Math]::Max(0, $total - $executed)
             $outcome = if ($failed -gt 0) { 'failed' } else { 'passed' }
             $lines += "| $($file.BaseName) | $total | $passed | $failed | $skipped | $outcome |"
