@@ -208,31 +208,91 @@ public class ContainerFunctionTests : E2ETest, IClassFixture<ContainerFixture>
     }
 
     [Fact]
-    public void WinRm_access_can_be_allowed_and_revoked()
+    public void WinRm_access_gates_tcp_reachability_to_the_container()
     {
         RequireContainer();
+        const int port = 5986;
+        var budget = TimeSpan.FromMinutes(3);
+
+        // The container's own public endpoint (web client FQDN) exposes only the web/BC ports, never
+        // WinRM — a grant opens 5986 on a separate load balancer. Verify it is closed there with no grant.
+        var containerHost = ContainerHost();
+        Assert.False(E2ENet.IsTcpOpen(containerHost, port),
+            $"WinRM port {port} should not be reachable on container endpoint {containerHost} without a grant.");
+
+        string host;
         try
         {
-            FkhCli.RunJson(Slow, "AllowWinRmAccess", "--name", Name);
+            // After AllowWinRmAccess the port becomes reachable on the grant's endpoint.
+            var granted = FkhCli.RunJson(Slow, "AllowWinRmAccess", "--name", Name);
+            host = WinRmHost(granted);
+            Assert.True(E2ENet.WaitUntilOpen(host, port, budget),
+                $"WinRM port {host}:{port} was not reachable after AllowWinRmAccess.");
         }
         finally
         {
             FkhCli.Run(Op, "RevokeWinRmAccess", "--name", Name);
         }
+
+        // After RevokeWinRmAccess the port is closed again.
+        Assert.True(E2ENet.WaitUntilClosed(host, port, budget),
+            $"WinRM port {host}:{port} was still reachable after RevokeWinRmAccess.");
     }
 
     [Fact]
-    public void Sql_access_can_be_allowed_and_revoked()
+    public void Sql_access_gates_tcp_reachability_to_sql_server()
     {
         RequireContainer();
+        const int port = 1433;
+        var budget = TimeSpan.FromMinutes(3);
+
+        string host;
         try
         {
-            FkhCli.RunJson(Slow, "AllowSqlAccess");
+            // After AllowSqlAccess the SQL port becomes reachable on the grant's endpoint.
+            var granted = FkhCli.RunJson(Slow, "AllowSqlAccess");
+            host = SqlHost(granted);
+            Assert.True(E2ENet.WaitUntilOpen(host, port, budget),
+                $"SQL port {host}:{port} was not reachable after AllowSqlAccess.");
         }
         finally
         {
             FkhCli.Run(Op, "RevokeSqlAccess");
         }
+
+        // After RevokeSqlAccess the port is closed again.
+        Assert.True(E2ENet.WaitUntilClosed(host, port, budget),
+            $"SQL port {host}:{port} was still reachable after RevokeSqlAccess.");
+    }
+
+    // GetContainerDetails returns webClientUrl as https://<appName>.<region>.cloudapp.azure.com/BC/.
+    private string ContainerHost()
+    {
+        var details = FkhCli.RunJson(Op, "GetContainerDetails", "--name", Name);
+        var url = details.GetProperty("webClientUrl").GetString() ?? "";
+        Assert.False(string.IsNullOrWhiteSpace(url), "GetContainerDetails did not return a webClientUrl.");
+        return new Uri(url).Host;
+    }
+
+    // AllowSqlAccess returns sqlEndpoint as "<host>,1433" (SQL Server syntax).
+    private static string SqlHost(JsonElement granted)
+    {
+        var endpoint = granted.GetProperty("sqlEndpoint").GetString() ?? "";
+        var host = endpoint.Split(',')[0].Trim();
+        Assert.False(string.IsNullOrWhiteSpace(host) || host.StartsWith('('),
+            $"AllowSqlAccess did not return a usable endpoint: '{endpoint}'.");
+        return host;
+    }
+
+    // AllowWinRmAccess returns winRmEndpoint as "<host>:5986".
+    private static string WinRmHost(JsonElement granted)
+    {
+        var endpoint = granted.GetProperty("winRmEndpoint").GetString() ?? "";
+        var idx = endpoint.LastIndexOf(':');
+        var host = (idx > 0 ? endpoint[..idx] : endpoint).Trim();
+        Assert.False(string.IsNullOrWhiteSpace(host) || host.StartsWith('('),
+            $"AllowWinRmAccess did not return a usable endpoint: '{endpoint}'.");
+        return host;
     }
 
     [Fact]
