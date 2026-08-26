@@ -107,7 +107,7 @@ internal static class FkhCli
         var result = Run(timeout, args);
         if (result.ExitCode != 0)
             throw new Xunit.Sdk.XunitException(
-                $"fkh {string.Join(' ', args)} exited with {result.ExitCode}.\nSTDOUT:\n{result.StdOut}\nSTDERR:\n{result.StdErr}");
+                $"fkh {Mask(args)} exited with {result.ExitCode}.\nSTDOUT:\n{result.StdOut}\nSTDERR:\n{result.StdErr}");
 
         try
         {
