@@ -265,13 +265,20 @@ public class ContainerFunctionTests : E2ETest, IClassFixture<ContainerFixture>
             $"SQL port {host}:{port} was still reachable after RevokeSqlAccess.");
     }
 
-    // GetContainerDetails returns webClientUrl as https://<appName>.<region>.cloudapp.azure.com/BC/.
+    // ListContainers returns a webClient URL (https://<appName>.<region>.cloudapp.azure.com/BC/) per
+    // container; GetContainerDetails is hidden from the CLI catalog so it can't be used here.
     private string ContainerHost()
     {
-        var details = FkhCli.RunJson(Op, "GetContainerDetails", "--name", Name);
-        var url = details.GetProperty("webClientUrl").GetString() ?? "";
-        Assert.False(string.IsNullOrWhiteSpace(url), "GetContainerDetails did not return a webClientUrl.");
-        return new Uri(url).Host;
+        var listed = FkhCli.RunJson(Op, "ListContainers");
+        foreach (var c in listed.GetProperty("containers").EnumerateArray())
+        {
+            if (!c.TryGetProperty("appLabel", out var al) || !string.Equals(al.GetString(), Name, StringComparison.OrdinalIgnoreCase))
+                continue;
+            var url = c.TryGetProperty("webClient", out var wc) ? wc.GetString() : null;
+            Assert.False(string.IsNullOrWhiteSpace(url), $"ListContainers returned no webClient for '{Name}'.");
+            return new Uri(url!).Host;
+        }
+        throw new Xunit.Sdk.XunitException($"Container '{Name}' not found in ListContainers output.");
     }
 
     // AllowSqlAccess returns sqlEndpoint as "<host>,1433" (SQL Server syntax).
