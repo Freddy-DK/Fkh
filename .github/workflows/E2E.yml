@@ -51,7 +51,9 @@ jobs:
           "FKH_CLI_PATH=$(Join-Path $PWD 'clipub/fkh.dll')" >> $env:GITHUB_ENV
 
       - name: Run E2E tests
-        run: dotnet run --project tests/e2e/Fkh.E2ETests/Fkh.E2ETests.csproj -c Release -- -result-trx TestResults/e2e.trx
+        run: |
+          mkdir -p TestResults
+          dotnet run --project tests/e2e/Fkh.E2ETests/Fkh.E2ETests.csproj -c Release -- -result-trx TestResults/e2e.trx
 
       - name: Publish test summary
         if: always()
