@@ -17,6 +17,8 @@ on:
       - 'fkh-backend/**'
       - 'fkh-cli/**'
       - 'tests/unit/**'
+      - 'tests/Directory.Build.props'
+      - 'tests/Write-TestSummary.ps1'
       - 'global.json'
       - '.github/workflows/Tests.yml'
   workflow_dispatch:
