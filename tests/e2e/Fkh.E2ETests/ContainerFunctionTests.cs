@@ -65,6 +65,65 @@ public class ContainerFunctionTests : E2ETest, IClassFixture<ContainerFixture>
     }
 
     [Fact]
+    public void InvokeScript_returns_the_scripts_output_value()
+    {
+        RequireContainer();
+        var token = Unique("fkhret");
+        var result = FkhCli.RunJson(Op, "InvokeScript", "--name", Name, "--command", $"Write-Output '{token}'");
+        Assert.Contains(token, ScriptOutput(result));
+    }
+
+    [Fact]
+    public void InvokeScript_round_trips_typed_parameters_and_return_types()
+    {
+        RequireContainer();
+        // Pass an int, a string (with a space), and a switch/bool into the script, then return a
+        // structured object as JSON so we can verify the different value types survive the round trip.
+        const string script =
+            "param([int]$Number,[string]$Text,[switch]$Flag)\n" +
+            "[PSCustomObject]@{ number = $Number; text = $Text; flag = [bool]$Flag; doubled = $Number * 2; items = @('a','b','c') } | ConvertTo-Json -Compress";
+
+        var result = FkhCli.RunJson(Op, "InvokeScript",
+            "--name", Name,
+            "--command", script,
+            "--scriptParams", "-Number 42 -Text 'hello world' -Flag");
+
+        using var returned = JsonDocument.Parse(ScriptOutput(result));
+        var root = returned.RootElement;
+        Assert.Equal(42, root.GetProperty("number").GetInt32());
+        Assert.Equal("hello world", root.GetProperty("text").GetString());
+        Assert.True(root.GetProperty("flag").GetBoolean());
+        Assert.Equal(84, root.GetProperty("doubled").GetInt32());
+        Assert.Equal(3, root.GetProperty("items").GetArrayLength());
+    }
+
+    [Fact]
+    public void InvokeScript_returns_a_value_from_a_short_running_script()
+        => InvokeSleepingScriptAndAssertReturn(seconds: 10, timeout: Op);
+
+    [Fact]
+    public void InvokeScript_returns_a_value_from_a_medium_running_script()
+        => InvokeSleepingScriptAndAssertReturn(seconds: 40, timeout: Op);
+
+    [Fact]
+    public void InvokeScript_returns_a_value_from_a_long_running_script()
+        => InvokeSleepingScriptAndAssertReturn(seconds: 360, timeout: Slow);
+
+    // Runs a script that sleeps for the given duration and then emits a unique token, and asserts the
+    // token is returned to the client. Exercises the backend's detached-job polling (202/Retry-After)
+    // for scripts that outlive a single request.
+    private void InvokeSleepingScriptAndAssertReturn(int seconds, TimeSpan timeout)
+    {
+        var token = Unique("fkhsleep");
+        var script = $"Start-Sleep -Seconds {seconds}; Write-Output '{token}'";
+        var result = FkhCli.RunJson(timeout, "InvokeScript", "--name", Name, "--command", script);
+        Assert.Contains(token, ScriptOutput(result));
+    }
+
+    // InvokeScript returns { container, output }; the script's captured stdout is the 'output' string.
+    private static string ScriptOutput(JsonElement result) => result.GetProperty("output").GetString() ?? "";
+
+    [Fact]
     public void GetAppInfo_returns_apps()
     {
         RequireContainer();
