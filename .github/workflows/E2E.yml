@@ -1,10 +1,75 @@
-name: E2E
+name: E2E Tests
 
 on:
   workflow_dispatch:
+    inputs:
+      extensive:
+        description: 'Run extensive tests (provisions and removes real containers).'
+        type: boolean
+        default: false
+
+# id-token is required so the CLI can authenticate to the backend via GitHub OIDC (--useOIDC).
+permissions:
+  id-token: write
+  contents: read
+
+# Serialize runs against a given backend: the suite performs cluster-wide grants/revocations,
+# settings changes, and destructive cleanup, so concurrent runs would invalidate each other.
+concurrency:
+  group: fkh-e2e-${{ vars.FKH_E2E_BACKEND_URL }}
+  cancel-in-progress: false
 
 jobs:
-  placeholder:
+  e2e:
     runs-on: ubuntu-latest
+    env:
+      FKH_E2E_BACKEND_URL: ${{ vars.FKH_E2E_BACKEND_URL }}
+      FKH_E2E_WEB_URL: ${{ vars.FKH_E2E_WEB_URL }}
+      FKH_E2E_USE_OIDC: 'true'
+      FKH_E2E_EXTENSIVE: ${{ inputs.extensive }}
+      FKH_E2E_ARTIFACT_URL: ${{ vars.FKH_E2E_ARTIFACT_URL }}
+      FKH_E2E_ADMIN_PASSWORD: ${{ secrets.FKH_E2E_ADMIN_PASSWORD }}
     steps:
-      - run: echo "Run this workflow from the Testing branch"
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Validate configuration
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:FKH_E2E_BACKEND_URL)) {
+            Write-Error "Repository variable FKH_E2E_BACKEND_URL is not set. Add it under Settings > Secrets and variables > Actions > Variables."
+            exit 1
+          }
+          Write-Host "Backend: $env:FKH_E2E_BACKEND_URL"
+          Write-Host "Extensive: $env:FKH_E2E_EXTENSIVE"
+
+      - name: Publish CLI
+        shell: pwsh
+        run: |
+          dotnet publish fkh-cli/fkh-cli.csproj -c Release -f net10.0 -o clipub
+          "FKH_CLI_PATH=$(Join-Path $PWD 'clipub/fkh.dll')" >> $env:GITHUB_ENV
+
+      - name: Run E2E tests
+        run: |
+          mkdir -p TestResults
+          dotnet run --project tests/e2e/Fkh.E2ETests/Fkh.E2ETests.csproj -c Release -- -result-trx TestResults/e2e.trx
+
+      - name: Publish test summary
+        if: always()
+        shell: pwsh
+        run: ./tests/Write-TestSummary.ps1 -Title 'E2E test results'
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-test-results
+          path: TestResults/*.trx
+          if-no-files-found: ignore

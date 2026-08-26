@@ -44,7 +44,13 @@ Published via `.github/workflows/DeployFkhClients.yml` on changes under `fkh-cli
 
 ## Test commands
 
-No automated tests. Verify with:
+Argument-parsing logic (`CliArgs.ParseArgs`, `CliArgs.EnsureRequiredParameters`) has unit tests in [`../tests/unit/Fkh.Cli.UnitTests`](../tests/unit/Fkh.Cli.UnitTests):
+
+```powershell
+dotnet run --project tests/unit/Fkh.Cli.UnitTests/Fkh.Cli.UnitTests.csproj -c Release
+```
+
+End-to-end behavior is covered by [`../tests/e2e/Fkh.E2ETests`](../tests/e2e/Fkh.E2ETests), which drives the built `fkh` CLI against a deployed backend. Smoke-check manually with:
 
 ```powershell
 fkh --version

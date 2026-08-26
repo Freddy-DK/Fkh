@@ -52,7 +52,13 @@ CI: `.github/workflows/DeployFkhFullStack.yml`, `UpdateFkhBackEnd.yml` — .NET 
 
 ## Test commands
 
-No test project in this repo. Manually exercise endpoints via CLI/VSIX or local `func`/watch.
+Unit tests live in [`../tests/unit/Fkh.Backend.UnitTests`](../tests/unit/Fkh.Backend.UnitTests) (xUnit v3, cover auth/authorization, brute-force protection, config parsing, artifact-URL parsing, and catalog invariants):
+
+```powershell
+dotnet run --project tests/unit/Fkh.Backend.UnitTests/Fkh.Backend.UnitTests.csproj -c Release
+```
+
+Use `dotnet run`, not `dotnet test` (MTP is unreliable under `dotnet test` on the .NET 10 SDK). Internals are exposed to the test project via `InternalsVisibleTo` in `azure-function.csproj`.
 
 ## Architecture patterns
 

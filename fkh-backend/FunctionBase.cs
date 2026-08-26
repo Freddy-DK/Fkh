@@ -73,25 +73,44 @@ public abstract class FunctionBase
 
     private static string GetClientIp(HttpRequestData req)
     {
-        // Azure Functions behind a load balancer forwards the real IP in X-Forwarded-For
-        if (req.Headers.TryGetValues("X-Forwarded-For", out var xff))
-        {
-            var first = xff.FirstOrDefault();
-            if (!string.IsNullOrWhiteSpace(first))
-            {
-                // X-Forwarded-For can be "client, proxy1, proxy2" — take the first
-                var ip = first.Split(',')[0].Trim();
-                // Strip port if present (e.g. "1.2.3.4:12345")
-                var colonIdx = ip.LastIndexOf(':');
-                if (colonIdx > 0 && !ip.Contains(']')) // avoid stripping IPv6
-                    ip = ip[..colonIdx];
-                return ip;
-            }
-        }
-        return req.Url.Host;
+        req.Headers.TryGetValues("X-Forwarded-For", out var xff);
+        return ExtractClientIp(xff, req.Url.Host);
     }
 
-    private static bool IsIpBlocked(string ip)
+    // Resolves the trustworthy client IP from X-Forwarded-For. Azure App Service's front end appends
+    // the real socket IP as the LAST entry; any earlier entries are caller-supplied and must not be
+    // trusted, otherwise brute-force protection could be bypassed by spoofing the header.
+    // (Revisit if a fronting proxy such as Azure Front Door is introduced.)
+    internal static string ExtractClientIp(IEnumerable<string>? forwardedForValues, string fallbackHost)
+    {
+        if (forwardedForValues is not null)
+        {
+            var parts = string.Join(',', forwardedForValues)
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length > 0)
+                return StripPort(parts[^1]);
+        }
+        return fallbackHost;
+    }
+
+    // Returns the address without any trailing port, so the same client always maps to one key
+    // regardless of the changing source port. Handles IPv4, "[IPv6]:port", bracketed and bare IPv6.
+    private static string StripPort(string address)
+    {
+        // Bracketed IPv6 ("[::1]" or "[::1]:443") — the address is between the brackets.
+        if (address.StartsWith('['))
+        {
+            var end = address.IndexOf(']');
+            return end > 0 ? address[1..end] : address;
+        }
+        // A single colon means IPv4 with a port ("1.2.3.4:443"); more than one means bare IPv6 ("::1").
+        var firstColon = address.IndexOf(':');
+        if (firstColon > 0 && address.IndexOf(':', firstColon + 1) < 0)
+            return address[..firstColon];
+        return address;
+    }
+
+    internal static bool IsIpBlocked(string ip)
     {
         if (!FailedAttempts.TryGetValue(ip, out var record))
             return false;
@@ -106,7 +125,7 @@ public abstract class FunctionBase
         return record.Count >= MaxFailedAttempts;
     }
 
-    private static void RecordFailedAttempt(string ip)
+    internal static void RecordFailedAttempt(string ip)
     {
         FailedAttempts.AddOrUpdate(ip,
             _ => new FailedAttemptRecord { Count = 1 },
@@ -126,7 +145,7 @@ public abstract class FunctionBase
             });
     }
 
-    private static void ClearFailedAttempts(string ip)
+    internal static void ClearFailedAttempts(string ip)
     {
         FailedAttempts.TryRemove(ip, out _);
     }
@@ -1142,7 +1161,7 @@ secretName = value[1..^1];
         return response;
     }
 
-    private static List<OrgTeamConfig> LoadOrgTeamConfig(string envVarName, bool required = true)
+    internal static List<OrgTeamConfig> LoadOrgTeamConfig(string envVarName, bool required = true)
     {
         var raw = Environment.GetEnvironmentVariable(envVarName);
         if (string.IsNullOrWhiteSpace(raw))
@@ -1159,7 +1178,7 @@ secretName = value[1..^1];
             ?? throw new InvalidOperationException($"Failed to parse {envVarName}.");
     }
 
-    private static List<AllowedUserConfig> LoadAllowedUsers()
+    internal static List<AllowedUserConfig> LoadAllowedUsers()
     {
         var raw = Environment.GetEnvironmentVariable("ALLOWED_USERS");
         if (string.IsNullOrWhiteSpace(raw))
@@ -1183,7 +1202,7 @@ secretName = value[1..^1];
         return users;
     }
 
-    private static List<string> LoadStringList(string envVarName)
+    internal static List<string> LoadStringList(string envVarName)
     {
         var raw = Environment.GetEnvironmentVariable(envVarName);
         if (string.IsNullOrWhiteSpace(raw))
