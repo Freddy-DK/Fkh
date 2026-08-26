@@ -45,6 +45,7 @@ public sealed class ContainerFixture : IAsyncLifetime
         if (!_created) return;
         E2ELog.Line($"[fixture] Removing shared container '{ContainerName}'.");
         var removal = FkhCli.Run(TimeSpan.FromMinutes(30), "RemoveContainer", "--name", ContainerName);
-        E2ELog.Line($"[fixture] Remove '{ContainerName}' exit {removal.ExitCode}.");
+        Assert.True(removal.ExitCode == 0,
+            $"Failed to remove E2E container '{ContainerName}'. STDOUT: {removal.StdOut} STDERR: {removal.StdErr}");
     }
 }
