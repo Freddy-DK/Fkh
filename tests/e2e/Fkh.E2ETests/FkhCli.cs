@@ -86,8 +86,9 @@ internal static class FkhCli
         {
             parts.Add(args[i]);
             var name = args[i].TrimStart('-').ToLowerInvariant();
-            if (i + 1 < args.Length &&
-                (name.Contains("password") || name.Contains("secret") || name.Contains("token")))
+            var isSecretOption = args[i].StartsWith("--", StringComparison.Ordinal) &&
+                (name.Contains("password") || name.Contains("secret") || name.Contains("token"));
+            if (i + 1 < args.Length && isSecretOption)
             {
                 parts.Add("***");
                 i++;
