@@ -29,7 +29,10 @@ public class AuthAndContractTests : E2ETest
     }
 
     // A successful authenticated call clears this IP's failed-attempt counter on the backend.
-    private static void ClearBruteForceCounter() => FkhCli.Run(TimeSpan.FromMinutes(2), "--version");
+    private static void ClearBruteForceCounter()
+    {
+        _ = FkhCli.RunJson(TimeSpan.FromMinutes(2), "GetCurrentUser");
+    }
 
     private static async Task<List<string>> GetAllRoutesAsync()
     {
