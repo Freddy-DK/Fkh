@@ -15,6 +15,7 @@ public class ContainerFunctionTests : E2ETest, IClassFixture<ContainerFixture>
     public ContainerFunctionTests(ContainerFixture fx) => _fx = fx;
 
     private string Name => _fx.ContainerName;
+    private string FullName => _fx.FullContainerName;
     private void RequireContainer() => Assert.SkipUnless(_fx.Ready, _fx.SkipReason);
     private static string Unique(string prefix) => $"{prefix}{DateTime.UtcNow:HHmmss}{Random.Shared.Next(100, 999)}";
 
@@ -30,7 +31,7 @@ public class ContainerFunctionTests : E2ETest, IClassFixture<ContainerFixture>
     {
         RequireContainer();
         var listed = FkhCli.RunJson("ListContainers");
-        Assert.True(JsonContainsName(listed, Name), $"'{Name}' not found in ListContainers output.");
+        Assert.True(JsonContainsName(listed, FullName), $"'{FullName}' not found in ListContainers output.");
     }
 
     [Fact]
@@ -266,19 +267,21 @@ public class ContainerFunctionTests : E2ETest, IClassFixture<ContainerFixture>
     }
 
     // ListContainers returns a webClient URL (https://<appName>.<region>.cloudapp.azure.com/BC/) per
-    // container; GetContainerDetails is hidden from the CLI catalog so it can't be used here.
+    // container; GetContainerDetails is hidden from the CLI catalog so it can't be used here. The app
+    // label is the resolved full name "<user>-<name>".
     private string ContainerHost()
     {
         var listed = FkhCli.RunJson(Op, "ListContainers");
         foreach (var c in listed.GetProperty("containers").EnumerateArray())
         {
-            if (!c.TryGetProperty("appLabel", out var al) || !string.Equals(al.GetString(), Name, StringComparison.OrdinalIgnoreCase))
+            var appLabel = c.TryGetProperty("appLabel", out var al) ? al.GetString() : null;
+            if (!string.Equals(appLabel, FullName, StringComparison.OrdinalIgnoreCase))
                 continue;
             var url = c.TryGetProperty("webClient", out var wc) ? wc.GetString() : null;
-            Assert.False(string.IsNullOrWhiteSpace(url), $"ListContainers returned no webClient for '{Name}'.");
+            Assert.False(string.IsNullOrWhiteSpace(url), $"ListContainers returned no webClient for '{FullName}'.");
             return new Uri(url!).Host;
         }
-        throw new Xunit.Sdk.XunitException($"Container '{Name}' not found in ListContainers output.");
+        throw new Xunit.Sdk.XunitException($"Container '{FullName}' not found in ListContainers output.");
     }
 
     // AllowSqlAccess returns sqlEndpoint as "<host>,1433" (SQL Server syntax).

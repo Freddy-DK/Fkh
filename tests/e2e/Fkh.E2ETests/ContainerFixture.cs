@@ -8,6 +8,9 @@ namespace Fkh.E2ETests;
 public sealed class ContainerFixture : IAsyncLifetime
 {
     public string ContainerName { get; } = E2EConfig.ResourcePrefix;
+    // The backend resolves a short name to "<sanitized-user>-<name>"; that is the app label reported
+    // by ListContainers and embedded in the web client host. Resolved once the user is known.
+    public string FullContainerName { get; private set; } = E2EConfig.ResourcePrefix;
     public bool Ready { get; private set; }
     public string SkipReason { get; private set; } = "Container fixture not initialized.";
 
@@ -24,6 +27,10 @@ public sealed class ContainerFixture : IAsyncLifetime
         var adminPassword = Environment.GetEnvironmentVariable("FKH_E2E_ADMIN_PASSWORD");
         if (string.IsNullOrWhiteSpace(artifactUrl)) { SkipReason = "FKH_E2E_ARTIFACT_URL is not set."; return; }
         if (string.IsNullOrWhiteSpace(adminPassword)) { SkipReason = "FKH_E2E_ADMIN_PASSWORD is not set."; return; }
+
+        var whoami = FkhCli.RunJson(TimeSpan.FromMinutes(5), "GetCurrentUser");
+        var username = whoami.GetProperty("username").GetString() ?? "";
+        FullContainerName = SanitizeAppName($"{username}-{ContainerName}");
 
         E2ELog.Line($"[fixture] Creating shared container '{ContainerName}' (artifact {artifactUrl}) — up to ~an hour if the image must be built.");
         FkhCli.RunJson(TimeSpan.FromMinutes(90), "CreateContainer",
@@ -47,5 +54,13 @@ public sealed class ContainerFixture : IAsyncLifetime
         var removal = FkhCli.Run(TimeSpan.FromMinutes(30), "RemoveContainer", "--name", ContainerName);
         Assert.True(removal.ExitCode == 0,
             $"Failed to remove E2E container '{ContainerName}'. STDOUT: {removal.StdOut} STDERR: {removal.StdErr}");
+    }
+
+    // Mirrors the backend's SanitizeAppName so the resolved app label can be reproduced client-side.
+    private static string SanitizeAppName(string name)
+    {
+        var appName = name.Replace('.', '-').Replace('_', '-').ToLowerInvariant();
+        if (appName.Length > 63) appName = appName[..63];
+        return appName.TrimEnd('-');
     }
 }
