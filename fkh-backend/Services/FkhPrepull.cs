@@ -198,7 +198,7 @@ public class FkhPrepull : FkhServiceBase
                             new()
                             {
                                 Name = "pause",
-                                Image = "mcr.microsoft.com/oss/kubernetes/pause:3.9",
+                                Image = "mcr.microsoft.com/oss/kubernetes/pause:3.10",
                                 Command = new List<string> { "cmd", "/c", "ping -n 2147483647 127.0.0.1 > nul" },
                                 Resources = new V1ResourceRequirements
                                 {

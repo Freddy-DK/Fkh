@@ -10,7 +10,7 @@ provider "kubernetes" {
 }
 
 provider "helm" {
-  kubernetes {
+  kubernetes = {
     host                   = azurerm_kubernetes_cluster.this.kube_config[0].host
     client_certificate     = base64decode(azurerm_kubernetes_cluster.this.kube_config[0].client_certificate)
     client_key             = base64decode(azurerm_kubernetes_cluster.this.kube_config[0].client_key)
@@ -348,6 +348,9 @@ resource "kubernetes_daemonset" "image_prepull" {
     }
   }
 
+  # Provider 3.x actually waits for rollout by default; pulling large BC images would block apply.
+  wait_for_rollout = false
+
   spec {
     selector {
       match_labels = {
@@ -400,7 +403,7 @@ resource "kubernetes_daemonset" "image_prepull" {
 
         container {
           name    = "pause"
-          image   = "mcr.microsoft.com/oss/kubernetes/pause:3.9"
+          image   = "mcr.microsoft.com/oss/kubernetes/pause:3.10"
           command = ["cmd", "/c", "ping -n 2147483647 127.0.0.1 > nul"]
 
           resources {
@@ -475,7 +478,7 @@ resource "kubernetes_deployment" "overprovision" {
 
         container {
           name    = "pause"
-          image   = "mcr.microsoft.com/oss/kubernetes/pause:3.9"
+          image   = "mcr.microsoft.com/oss/kubernetes/pause:3.10"
           command = ["cmd", "/c", "ping -n 2147483647 127.0.0.1 > nul"]
 
           resources {

@@ -65,6 +65,20 @@ windows_spot_vm_size         = "Standard_D2ds_v5" # VM size for spot nodes
 windows_spot_min_node_count  = 0                  # Minimum spot nodes (0 = scale to zero when idle)
 windows_spot_max_node_count  = 10                 # Maximum spot nodes the autoscaler can scale to
 
+# Kubernetes version — minor version only (e.g. "1.35"). Patches are applied automatically in the
+# maintenance window below; minor upgrades only happen when you change this value (one minor at a time).
+# Windows Server 2022 nodes are supported up to 1.36.
+kubernetes_version = "1.35"
+
+# Maintenance window — weekly slot where AKS may apply Kubernetes patches and node OS image updates.
+# Nodes are drained during updates, so running BC containers restart. duration is in hours (min 4).
+aks_maintenance_window = {
+  day_of_week = "Sunday"
+  start_time  = "02:00"
+  duration    = 4
+  utc_offset  = "+01:00"
+}
+
 # Images to pre-pull on Windows nodes (speeds up container creation)
 windows_prepull_images = [
   # "<acr-name>.azurecr.io/businesscentral:<tag>"

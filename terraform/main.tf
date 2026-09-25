@@ -4,23 +4,23 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~> 4.0"
+      version = "~> 5.7"
     }
     azuread = {
       source  = "hashicorp/azuread"
-      version = "~> 2.47"
+      version = "~> 3.10"
     }
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = "~> 2.30"
+      version = "~> 3.2"
     }
     helm = {
       source  = "hashicorp/helm"
-      version = "~> 2.14"
+      version = "~> 3.3"
     }
     random = {
       source  = "hashicorp/random"
-      version = "~> 3.6"
+      version = "~> 3.9"
     }
   }
 
@@ -29,6 +29,22 @@ terraform {
 
 provider "azurerm" {
   subscription_id = var.subscription_id
+
+  # azurerm 5.x no longer auto-registers resource providers.
+  resource_providers_to_register = [
+    "Microsoft.Compute",
+    "Microsoft.ContainerRegistry",
+    "Microsoft.ContainerService",
+    "Microsoft.Insights",
+    "Microsoft.KeyVault",
+    "Microsoft.ManagedIdentity",
+    "Microsoft.Network",
+    "Microsoft.OperationalInsights",
+    "Microsoft.OperationsManagement",
+    "Microsoft.Storage",
+    "Microsoft.Web",
+  ]
+
   features {}
 }
 
@@ -84,11 +100,34 @@ resource "azurerm_kubernetes_cluster" "this" {
   cost_analysis_enabled = var.aks_sku_tier != "Free"
   oidc_issuer_enabled = true
 
+  kubernetes_version        = var.kubernetes_version
+  automatic_upgrade_channel = "patch"
+  node_os_upgrade_channel   = "NodeImage"
+
+  maintenance_window_auto_upgrade {
+    frequency   = "Weekly"
+    interval    = 1
+    day_of_week = var.aks_maintenance_window.day_of_week
+    start_time  = var.aks_maintenance_window.start_time
+    duration    = var.aks_maintenance_window.duration
+    utc_offset  = var.aks_maintenance_window.utc_offset
+  }
+
+  maintenance_window_node_os {
+    frequency   = "Weekly"
+    interval    = 1
+    day_of_week = var.aks_maintenance_window.day_of_week
+    start_time  = var.aks_maintenance_window.start_time
+    duration    = var.aks_maintenance_window.duration
+    utc_offset  = var.aks_maintenance_window.utc_offset
+  }
+
   default_node_pool {
     name                         = "linuxpool"
     node_count                   = 1
     vm_size                      = var.linux_vm_size
     os_sku                       = "Ubuntu"
+    orchestrator_version         = var.kubernetes_version
     temporary_name_for_rotation  = "linuxtmp"
 
     upgrade_settings {
@@ -100,6 +139,10 @@ resource "azurerm_kubernetes_cluster" "this" {
   network_profile {
     network_plugin      = "azure"
     network_plugin_mode = "overlay"
+  }
+
+  node_provisioning_profile {
+    mode = "Manual"
   }
 
   identity {
@@ -124,6 +167,7 @@ resource "azurerm_kubernetes_cluster_node_pool" "win" {
   vm_size                      = var.windows_vm_size
   os_type                      = "Windows"
   os_sku                       = "Windows2022"
+  orchestrator_version         = var.kubernetes_version
   temporary_name_for_rotation  = "wintmp"
   min_count                    = var.windows_min_node_count
   max_count                    = var.windows_max_node_count
@@ -150,6 +194,7 @@ resource "azurerm_kubernetes_cluster_node_pool" "winspot" {
   vm_size                      = var.windows_spot_vm_size
   os_type                      = "Windows"
   os_sku                       = "Windows2022"
+  orchestrator_version         = var.kubernetes_version
   temporary_name_for_rotation  = "spottmp"
   min_count             = var.windows_spot_min_node_count
   max_count             = var.windows_spot_max_node_count

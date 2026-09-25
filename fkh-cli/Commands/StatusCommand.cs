@@ -5,7 +5,7 @@ using System.Text.Json;
 sealed class StatusCommand : ClientCommand
 {
     public override string Name => "Status";
-    public override string Description => "Returns system status including Kubernetes nodes, BC containers, SQL, storage, quotas, and security. Admin only.";
+    public override string Description => "Returns system status including AKS/node pool versions, Kubernetes nodes, BC containers, SQL, storage, quotas, and security. Admin only.";
     public override List<ClientCommandParameter> Parameters => [];
 
     public override async Task<int> ExecuteAsync(string[] args, CliSettings settings, bool asJson)

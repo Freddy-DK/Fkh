@@ -47,6 +47,48 @@ variable "windows_vm_size" {
   default     = "Standard_D4s_v5"
 }
 
+variable "kubernetes_version" {
+  description = "AKS Kubernetes minor version (e.g. '1.35'). Patches within the minor are applied automatically in the maintenance window; minor upgrades only happen when this value is changed. Windows Server 2022 node pools are supported up to 1.36."
+  type        = string
+  default     = "1.35"
+
+  validation {
+    condition     = can(regex("^[0-9]+\\.[0-9]+$", var.kubernetes_version))
+    error_message = "kubernetes_version must be a minor version only (e.g. '1.35'), not a full patch version."
+  }
+}
+
+variable "aks_maintenance_window" {
+  description = "Weekly window in which AKS may apply Kubernetes patch upgrades and node OS image updates (nodes are drained, so running containers restart). duration is in hours (min 4)."
+  type = object({
+    day_of_week = optional(string, "Sunday")
+    start_time  = optional(string, "02:00")
+    duration    = optional(number, 4)
+    utc_offset  = optional(string, "+00:00")
+  })
+  default = {}
+
+  validation {
+    condition     = contains(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"], var.aks_maintenance_window.day_of_week)
+    error_message = "aks_maintenance_window.day_of_week must be a weekday name, e.g. 'Sunday'."
+  }
+
+  validation {
+    condition     = can(regex("^([01][0-9]|2[0-3]):[0-5][0-9]$", var.aks_maintenance_window.start_time))
+    error_message = "aks_maintenance_window.start_time must be in HH:mm format, e.g. '02:00'."
+  }
+
+  validation {
+    condition     = var.aks_maintenance_window.duration >= 4 && var.aks_maintenance_window.duration <= 24
+    error_message = "aks_maintenance_window.duration must be between 4 and 24 hours."
+  }
+
+  validation {
+    condition     = can(regex("^[+-][0-9]{2}:[0-9]{2}$", var.aks_maintenance_window.utc_offset))
+    error_message = "aks_maintenance_window.utc_offset must be in +HH:mm or -HH:mm format, e.g. '+01:00'."
+  }
+}
+
 variable "aks_sku_tier" {
   description = "AKS control plane tier. 'Free' for dev/test (no SLA). 'Standard' for production (99.95% SLA, ~$73/month)."
   type        = string
