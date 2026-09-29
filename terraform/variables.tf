@@ -33,6 +33,38 @@ variable "fkhDeploymentName" {
   type        = string
 }
 
+variable "registration" {
+  description = "Registration with the Fkh author, used to contact you about security patches and important updates. Sent to the central fkh-usage service on every deployment and linked to this deployment's anonymous usage data."
+  type = object({
+    company    = string
+    name       = string
+    githubUser = string
+    email      = string
+    phone      = string
+    address    = optional(string, "")
+    country    = optional(string, "")
+    website    = optional(string, "")
+    notes      = optional(string, "")
+  })
+  sensitive = true
+
+  validation {
+    condition = alltrue([for v in [var.registration.company, var.registration.name, var.registration.githubUser, var.registration.email, var.registration.phone] :
+    try(trimspace(v), "") != ""])
+    error_message = "registration.company, name, githubUser, email and phone are required in deployment.tfvars."
+  }
+
+  validation {
+    condition     = can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", trimspace(var.registration.email)))
+    error_message = "registration.email must be a valid email address."
+  }
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9](-?[A-Za-z0-9]){0,38}$", trimspace(var.registration.githubUser)))
+    error_message = "registration.githubUser must be a valid GitHub username (without @)."
+  }
+}
+
 # ── AKS ───────────────────────────────────────────────────────────────────────
 
 variable "linux_vm_size" {

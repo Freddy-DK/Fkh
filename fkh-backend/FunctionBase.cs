@@ -315,7 +315,7 @@ public abstract class FunctionBase
         if (secretError is not null) return secretError;
 
         // ── Execute operation ─────────────────────────────────────────────────────
-        return await RunOperationAsync(req, logger, operationName, auth.Username,
+        return await RunOperationAsync(req, logger, operationName, auth,
             () => aksOperation(parameters, formFiles));
     }
 
@@ -497,7 +497,7 @@ public abstract class FunctionBase
         if (secretError is not null) return secretError;
 
         // ── Execute operation ─────────────────────────────────────────────────────
-        return await RunOperationAsync(req, logger, operationName, auth.Username,
+        return await RunOperationAsync(req, logger, operationName, auth,
             () => aksOperation(parametersResult.Parameters!));
     }
 
@@ -541,16 +541,19 @@ public abstract class FunctionBase
         var parameters = parametersResult.Parameters!;
         _ = Task.Run(async () =>
         {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 await aksOperation(parameters);
                 logger.LogInformation("Background operation {Operation} completed for user {Username}.",
                     operationName, auth.Username);
+                TrackFunctionCall(operationName, auth, (int)HttpStatusCode.OK, stopwatch.ElapsedMilliseconds);
             }
             catch (Exception ex)
             {
                 logger.LogError(ex, "Background operation {Operation} failed for user {Username}.",
                     operationName, auth.Username);
+                TrackFunctionCall(operationName, auth, (int)HttpStatusCode.InternalServerError, stopwatch.ElapsedMilliseconds);
             }
         });
 
@@ -611,6 +614,9 @@ public abstract class FunctionBase
         public required bool IsOidc { get; init; }
         public required string ClientIp { get; init; }
         public required FunctionDefinition Function { get; init; }
+        public required string ClientName { get; init; }
+        public required int ProtocolVersion { get; init; }
+        public required string CallerType { get; init; }
     }
 
     /// <summary>
@@ -671,6 +677,7 @@ public abstract class FunctionBase
         var isAdmin = false;
         var isSupport = false;
         var isOidc = false;
+        var callerType = "GitHubToken";
 
         if (AdoOidcService.IsAdoOidcToken(token))
         {
@@ -686,6 +693,7 @@ public abstract class FunctionBase
             username = GetAdoOidcUsername(subject);
             isAdmin = true;
             isOidc = true;
+            callerType = "AzureDevOpsOidc";
             logger.LogInformation("Received {Operation} request from ADO OIDC caller: {Subject} (username: {Username}, admin: true)", operationName, subject, username);
         }
         else if (GitHubOidcService.IsOidcToken(token))
@@ -702,6 +710,7 @@ public abstract class FunctionBase
             username = repository.Replace('/', '-');
             isAdmin = true;
             isOidc = true;
+            callerType = "GitHubOidc";
             logger.LogInformation("Received {Operation} request from OIDC caller: {Repository} (username: {Username}, admin: true)", operationName, repository, username);
         }
         else
@@ -742,7 +751,10 @@ public abstract class FunctionBase
             IsSupport = isSupport,
             IsOidc = isOidc,
             ClientIp = clientIp,
-            Function = function
+            Function = function,
+            ClientName = clientName,
+            ProtocolVersion = protocolVersion,
+            CallerType = callerType,
         }, null);
     }
 
@@ -937,10 +949,42 @@ secretName = value[1..^1];
     }
 
     /// <summary>
+    /// Executes the operation and records an anonymous FunctionCall usage event.
+    /// </summary>
+    private static async Task<HttpResponseData> RunOperationAsync(
+        HttpRequestData req,
+        ILogger logger,
+        string operationName,
+        AuthResult auth,
+        Func<Task<object>> operation)
+    {
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var response = await RunOperationCoreAsync(req, logger, operationName, auth.Username, operation);
+        TrackFunctionCall(operationName, auth, (int)response.StatusCode, stopwatch.ElapsedMilliseconds);
+        return response;
+    }
+
+    private static void TrackFunctionCall(string operationName, AuthResult auth, int statusCode, long durationMs)
+    {
+        FkhTelemetry.Track("FunctionCall", new Dictionary<string, object?>
+        {
+            ["operation"] = operationName,
+            ["client"] = auth.ClientName,
+            ["protocolVersion"] = auth.ProtocolVersion,
+            ["callerType"] = auth.CallerType,
+            ["role"] = auth.IsAdmin ? "admin" : auth.IsSupport ? "support" : "member",
+            ["statusCode"] = statusCode,
+            ["success"] = statusCode < 400,
+            ["durationMs"] = durationMs,
+            ["userHash"] = FkhTelemetry.UserHash(auth.Username),
+        });
+    }
+
+    /// <summary>
     /// Executes the operation, serializes the result as JSON, and handles
     /// <see cref="RetryAfterException"/> and unexpected errors uniformly.
     /// </summary>
-    private static async Task<HttpResponseData> RunOperationAsync(
+    private static async Task<HttpResponseData> RunOperationCoreAsync(
         HttpRequestData req,
         ILogger logger,
         string operationName,

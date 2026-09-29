@@ -51,7 +51,7 @@ public class FkhClusterSchedule
             if (running)
             {
                 _logger.LogInformation("Schedule: firing one-off stop (scheduled {StopAt} UTC).", nextStop);
-                await _clusterControl.StopClusterForScheduleAsync();
+                await _clusterControl.StopClusterForScheduleAsync("oneoff");
             }
             overrides.NextStop = null;
             await _clusterControl.SaveOverridesAsync(overrides);
@@ -63,7 +63,7 @@ public class FkhClusterSchedule
             if (stopped)
             {
                 _logger.LogInformation("Schedule: firing one-off start (scheduled {StartAt} UTC).", nextStart);
-                await _clusterControl.StartClusterForScheduleAsync();
+                await _clusterControl.StartClusterForScheduleAsync("oneoff");
             }
             overrides.NextStart = null;
             await _clusterControl.SaveOverridesAsync(overrides);

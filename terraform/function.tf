@@ -122,7 +122,9 @@ resource "azurerm_windows_function_app" "this" {
     }
   }
 
-  app_settings = local.function_app_settings
+  app_settings = merge(local.function_app_settings, local.telemetry_app_settings, {
+    FKH_TELEMETRY_ENVIRONMENT = "production"
+  })
 
   tags = azurerm_resource_group.this.tags
 }
@@ -162,7 +164,9 @@ resource "azurerm_windows_function_app" "staging" {
   # sensitive values in the map cause "inconsistent values for sensitive
   # attribute" errors during plan expansion (the provider treats app_settings
   # as sensitive internally, so double-sensitivity triggers the bug).
-  app_settings = nonsensitive(local.function_app_settings)
+  app_settings = nonsensitive(merge(local.function_app_settings, local.telemetry_app_settings, {
+    FKH_TELEMETRY_ENVIRONMENT = "staging"
+  }))
 
   tags = azurerm_resource_group.this.tags
 }

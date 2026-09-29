@@ -20,6 +20,22 @@
 # Needs to be lower case, letters and numbers only
 fkhDeploymentName = "myorg"
 
+# Registration (required) — lets the Fkh author contact you about security patches and important updates.
+# Sent to the central fkh-usage service on every deployment and linked to your deployment's anonymous
+# usage data (which contains no names, emails, URLs or IPs)
+# company, name, githubUser, email and phone are required.
+registration = {
+  company    = ""   # e.g. "My Company"
+  name       = ""   # Contact person, e.g. "Jane Doe"
+  githubUser = ""   # Contact person's GitHub username, e.g. "janedoe"
+  email      = ""   # e.g. "jane@example.com"
+  phone      = ""   # e.g. "+45 12345678"
+  address    = ""   # Optional, e.g. "Street 1, 1234 City"
+  country    = ""   # Optional, e.g. "Denmark"
+  website    = ""   # Optional, e.g. "https://example.com"
+  notes      = ""   # Optional
+}
+
 
 #                                   _____      _   _   _                 
 #     /\                           / ____|    | | | | (_)                

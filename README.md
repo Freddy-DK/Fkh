@@ -107,6 +107,16 @@ A GitHub-authenticated Azure Function acts as the provisioning gate; Terraform m
 
 Follow description under [Installation/README.md](Installation/README.md)
 
+## Usage telemetry and registration
+
+Every Fkh backend sends anonymous usage events to the central fkh-usage service run by the Fkh author. Events are sent fire-and-forget (one short HTTP call per event, failures ignored) and never delay a request.
+
+**Collected:** a random deployment ID, Fkh/Kubernetes/.NET versions, Azure region, VM sizes and node counts, deployment feature flags (e.g. web app, staging, spot, Kubecost), which functions are called (name, client, duration, status), cluster start/stop, and container lifecycle events (BC version, country, artifact type, auth type, CPU/memory, flags such as multitenant or spot).
+
+**Never collected:** GitHub usernames, emails, container/database/org/team/repo names, artifact or license URLs, IP addresses, subscription or tenant IDs, deployment names or hostnames. Users and containers are counted via HMAC hashes keyed with a random per-deployment secret that never leaves your deployment.
+
+**Registration (required):** fill in the `registration` block in `config/deployment.tfvars` (company, contact name, GitHub username, email and phone are mandatory) so the author can contact you about security patches and important updates. It is sent on every deployment together with your deployment ID and backend URL, which links your anonymous usage to your company.
+
 ## Sponsors
 
 Thanks to these sponsors for sponsoring the project:

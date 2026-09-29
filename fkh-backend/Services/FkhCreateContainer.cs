@@ -25,6 +25,7 @@ public class FkhCreateContainer : FkhServiceBase
 
     public async Task<object> CreateContainerAsync(Dictionary<string, string> parameters)
     {
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var name = parameters.TryGetValue("name", out var n) ? n : null;
         var artifactUrl = parameters["artifactUrl"];
         var adminUsername = parameters["adminUsername"];
@@ -182,6 +183,28 @@ public class FkhCreateContainer : FkhServiceBase
 
         Logger.LogInformation("Deployment {Deployment} and service {Service} created in namespace {Namespace}",
             deploymentName, serviceName, Namespace);
+
+        var artifact = ArtifactInfo.Parse(artifactUrl);
+        FkhTelemetry.Track("ContainerCreated", new Dictionary<string, object?>
+        {
+            ["containerHash"] = FkhTelemetry.ContainerHash(appName),
+            ["userHash"] = FkhTelemetry.UserHash(githubUsername),
+            ["artifactType"] = artifact.Type,
+            ["bcVersion"] = artifact.Version,
+            ["bcMajor"] = artifact.Major,
+            ["country"] = artifact.Country,
+            ["auth"] = useAadAuth ? "AAD" : "NavUserPassword",
+            ["multitenant"] = multitenant,
+            ["spot"] = useSpot,
+            ["customDatabase"] = !string.IsNullOrWhiteSpace(useDatabase) || !string.IsNullOrWhiteSpace(tenantDatabase),
+            ["customLicense"] = !string.IsNullOrWhiteSpace(licenseFileUrl),
+            ["devScope"] = moveAllAppsToDevScope,
+            ["cpu"] = cpuRequest,
+            ["memory"] = memoryRequest,
+            ["openPortsCount"] = string.IsNullOrEmpty(openPorts) ? 0 : openPorts.Split(',').Length,
+            ["autostop"] = autoStop is not null,
+            ["durationMs"] = stopwatch.ElapsedMilliseconds,
+        });
 
         return new
         {

@@ -11,14 +11,16 @@ public class AutoStopFunction
     private readonly FkhAllowSqlAccess _sqlAccess;
     private readonly FkhAllowWinRmAccess _winRmAccess;
     private readonly FkhClusterSchedule _clusterSchedule;
+    private readonly FkhUsageSnapshot _usageSnapshot;
 
-    public AutoStopFunction(ILogger<AutoStopFunction> logger, FkhAutoStop autoStop, FkhAllowSqlAccess sqlAccess, FkhAllowWinRmAccess winRmAccess, FkhClusterSchedule clusterSchedule)
+    public AutoStopFunction(ILogger<AutoStopFunction> logger, FkhAutoStop autoStop, FkhAllowSqlAccess sqlAccess, FkhAllowWinRmAccess winRmAccess, FkhClusterSchedule clusterSchedule, FkhUsageSnapshot usageSnapshot)
     {
         _logger = logger;
         _autoStop = autoStop;
         _sqlAccess = sqlAccess;
         _winRmAccess = winRmAccess;
         _clusterSchedule = clusterSchedule;
+        _usageSnapshot = usageSnapshot;
     }
 
     [Function("AutoStop")]
@@ -59,5 +61,7 @@ public class AutoStopFunction
         {
             _logger.LogError(ex, "Cluster schedule check failed.");
         }
+
+        _usageSnapshot.TrackHeartbeatIfDue();
     }
 }
