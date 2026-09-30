@@ -137,7 +137,10 @@ az account set --subscription $tfSubscriptionId
 if ($LASTEXITCODE -ne 0) { throw "Failed to set Azure subscription to $tfSubscriptionId." }
 
 az group create --name $stateRg --location $tfStateLocation --output none 2>$null
-az storage account create --name $stateAccount --resource-group $stateRg --location $tfStateLocation --sku Standard_LRS --kind StorageV2 --allow-blob-public-access false --output none 2>$null
+az storage account create --name $stateAccount --resource-group $stateRg --location $tfStateLocation --sku Standard_LRS --kind StorageV2 --allow-blob-public-access false --min-tls-version TLS1_2 --output none 2>$null
+# Existing state accounts may predate the TLS 1.2 requirement.
+az storage account update --name $stateAccount --resource-group $stateRg --min-tls-version TLS1_2 --output none
+if ($LASTEXITCODE -ne 0) { throw "Failed to enforce TLS 1.2 on state storage account $stateAccount." }
 
 # Grant the current user "Storage Blob Data Contributor" on the state storage account
 $currentUserId = az ad signed-in-user show --query id -o tsv

@@ -218,6 +218,14 @@ jobs:
             --sku Standard_LRS \
             --kind StorageV2 \
             --allow-blob-public-access false \
+            --min-tls-version TLS1_2 \
+            --output none
+
+          # Existing state accounts may predate the TLS 1.2 requirement.
+          az storage account update \
+            --name "${{ steps.parse.outputs.state_account }}" \
+            --resource-group "${{ steps.parse.outputs.state_rg }}" \
+            --min-tls-version TLS1_2 \
             --output none
 
           echo "Creating blob container ${{ steps.parse.outputs.state_container }}..."
