@@ -183,6 +183,17 @@ variable "sql_memory_limit_mb" {
   default     = 10240
 }
 
+variable "sql_version" {
+  description = "SQL Server base image: 2022 or 2025 (uses <version>-latest), or a specific mcr.microsoft.com/mssql/server tag such as 2025-CU9-ubuntu-24.04. Upgrading 2022 -> 2025 is one-way."
+  type        = string
+  default     = "2022"
+
+  validation {
+    condition     = can(regex("^(2022|2025)(-.+)?$", var.sql_version))
+    error_message = "sql_version must be 2022, 2025 or a mcr.microsoft.com/mssql/server tag starting with 2022- or 2025-."
+  }
+}
+
 # ── GitHub ────────────────────────────────────────────────────────────────────
 
 # ── Function access config ────────────────────────────────────────────────────

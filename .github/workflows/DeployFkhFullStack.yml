@@ -376,9 +376,7 @@ jobs:
           $acrName = terraform output -raw acr_name
           $acrLoginServer = terraform output -raw acr_login_server
           az acr login --name $acrName
-          $imageTag = "$acrLoginServer/mssql-server-fts:2022-latest"
-          docker build -t $imageTag ../mssql-fts
-          docker push $imageTag
+          ../mssql-fts/Build-MssqlImage.ps1 -VarFile "${{ steps.tfvars.outputs.tfvars_file }}" -AcrLoginServer $acrLoginServer
 
       # ── Full Terraform apply ──────────────────────────────────────────────
       - name: Terraform apply

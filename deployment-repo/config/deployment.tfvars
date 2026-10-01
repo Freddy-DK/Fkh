@@ -90,6 +90,9 @@ function_timeout_minutes = 10
 namespace           = "app"
 sql_storage_size    = "128Gi"
 sql_memory_limit_mb = 10240              # SQL Server max buffer pool memory in MB (default 10 GiB)
+# SQL Server image: "2022" or "2025" (latest CU) or a specific mcr.microsoft.com/mssql/server tag,
+# Upgrading 2022 -> 2025 converts all databases and cannot be undone.
+sql_version         = "2022"
 
 
 #   _____            _        _                     _____      _   _   _                 

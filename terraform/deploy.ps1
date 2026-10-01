@@ -314,11 +314,7 @@ $acrLoginServer = terraform output -raw acr_login_server
 if ($acrName -and $acrLoginServer) {
     Write-Host "Building and pushing MSSQL FTS image to $acrLoginServer..." -ForegroundColor Cyan
     az acr login --name $acrName
-    $imageTag = "$acrLoginServer/mssql-server-fts:2022-latest"
-    docker build -t $imageTag "$PSScriptRoot/../mssql-fts"
-    if ($LASTEXITCODE -ne 0) { throw "Docker build failed." }
-    docker push $imageTag
-    if ($LASTEXITCODE -ne 0) { throw "Docker push failed." }
+    & "$PSScriptRoot/../mssql-fts/Build-MssqlImage.ps1" -VarFile $VarFile -AcrLoginServer $acrLoginServer
     Write-Host "MSSQL FTS image pushed successfully." -ForegroundColor Green
 }
 
