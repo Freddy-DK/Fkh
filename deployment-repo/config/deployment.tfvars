@@ -88,11 +88,15 @@ kubernetes_version = "1.35"
 
 # Maintenance window — weekly slot where AKS may apply Kubernetes patches and node OS image updates.
 # Nodes are drained during updates, so running BC containers restart. duration is in hours (min 4).
+# A stopped cluster is never upgraded, so the Fkh scheduler starts the cluster 30 minutes before the
+# window and stops it again afterwards (unless the uptime schedule wants it running).
+# utc_offset is fixed (does not follow daylight saving time). Set to null to let AKS upgrade at any time.
 aks_maintenance_window = {
-  day_of_week = "Sunday"
-  start_time  = "02:00"
-  duration    = 4
-  utc_offset  = "+01:00"
+  frequency   = "Weekly"   # Weekly | Daily
+  day_of_week = "Sunday"   # Monday..Sunday (Weekly only)
+  start_time  = "01:00"    # HH:mm
+  utc_offset  = "+01:00"   # +HH:mm / -HH:mm
+  duration    = 4          # hours (4-24)
 }
 
 # Images to pre-pull on Windows nodes (speeds up container creation)
@@ -120,6 +124,9 @@ function_timeout_minutes = 10
 namespace           = "app"
 sql_storage_size    = "128Gi"
 sql_memory_limit_mb = 10240              # SQL Server max buffer pool memory in MB (default 10 GiB)
+# SQL Server image: "2022" or "2025" (latest CU) or a specific mcr.microsoft.com/mssql/server tag,
+# Upgrading 2022 -> 2025 converts all databases and cannot be undone.
+sql_version         = "2022"
 
 
 #   _____            _        _                     _____      _   _   _                 

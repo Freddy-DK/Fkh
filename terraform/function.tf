@@ -68,6 +68,7 @@ locals {
     ALLOWED_ADO_CONNECTIONS                = jsonencode(var.allowed_ado_connections)
     ADO_IDENTITY_CLIENT_ID                 = length(var.allowed_ado_connections) > 0 ? azurerm_user_assigned_identity.ado[0].client_id : ""
     AKS_LOCATION                           = var.location
+    AKS_MAINTENANCE_WINDOW                 = var.aks_maintenance_window == null ? "" : jsonencode(var.aks_maintenance_window)
     CONTACT_EMAIL_FOR_LETSENCRYPT          = var.contact_email_for_letsencrypt
     GITHUB_APP_ID                          = var.github_app_id
     GITHUB_APP_CLIENT_ID                   = var.github_app_client_id
