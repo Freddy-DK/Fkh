@@ -20,6 +20,22 @@
 # Needs to be lower case, letters and numbers only
 fkhDeploymentName = "myorg"
 
+# Registration (required) — lets the Fkh author contact you about security patches and important updates.
+# Sent to the central fkh-usage service on every deployment and linked to your deployment's anonymous
+# usage data (which contains no names, emails, URLs or IPs)
+# company, name, githubUser, email and phone are required.
+registration = {
+  company    = ""   # e.g. "My Company"
+  name       = ""   # Contact person, e.g. "Jane Doe"
+  githubUser = ""   # Contact person's GitHub username, e.g. "janedoe"
+  email      = ""   # e.g. "jane@example.com"
+  phone      = ""   # e.g. "+45 12345678"
+  address    = ""   # Optional, e.g. "Street 1, 1234 City"
+  country    = ""   # Optional, e.g. "Denmark"
+  website    = ""   # Optional, e.g. "https://example.com"
+  notes      = ""   # Optional
+}
+
 
 #                                   _____      _   _   _                 
 #     /\                           / ____|    | | | | (_)                
@@ -65,17 +81,13 @@ windows_spot_vm_size         = "Standard_D2ds_v5" # VM size for spot nodes
 windows_spot_min_node_count  = 0                  # Minimum spot nodes (0 = scale to zero when idle)
 windows_spot_max_node_count  = 10                 # Maximum spot nodes the autoscaler can scale to
 
-# AKS maintenance window — when AKS automatically upgrades the node OS images.
-# Updated during the window (nodes are reimaged one at a time):
-#   - Node OS image of all node pools: Ubuntu (Linux) and Windows Server security patches,
-#     container runtime and other components shipped in the AKS node image.
-#   - The SQL pod moves to the reimaged Linux node (a few minutes of SQL downtime) and pulls the
-#     mssql-server-fts image currently in ACR (as pushed by the last Deploy Full Stack).
-#   - BC containers on reimaged Windows nodes are restarted.
-# NOT updated:
-#   - Kubernetes version, and the Ubuntu release that follows it (22.04 -> 24.04 at Kubernetes 1.35).
-#   - SQL Server CU (mssql-server-fts image) — only rebuilt by Deploy Full Stack.
-#   - Business Central images, Function App and web app.
+# Kubernetes version — minor version only (e.g. "1.35"). Patches are applied automatically in the
+# maintenance window below; minor upgrades only happen when you change this value (one minor at a time).
+# Windows Server 2022 nodes are supported up to 1.36.
+kubernetes_version = "1.35"
+
+# Maintenance window — weekly slot where AKS may apply Kubernetes patches and node OS image updates.
+# Nodes are drained during updates, so running BC containers restart. duration is in hours (min 4).
 # A stopped cluster is never upgraded, so the Fkh scheduler starts the cluster 30 minutes before the
 # window and stops it again afterwards (unless the uptime schedule wants it running).
 # utc_offset is fixed (does not follow daylight saving time). Set to null to let AKS upgrade at any time.

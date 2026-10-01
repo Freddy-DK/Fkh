@@ -25,6 +25,7 @@ public class FkhScaleContainer : FkhServiceBase
         await ClearAutoStopAnnotationAsync(client, deploymentName);
         // Release the LoadBalancer (public IP + LB rules) so a stopped container incurs no cost.
         await DeleteContainerLoadBalancerServiceAsync(client, appName);
+        TrackContainerScaled("ContainerStopped", appName, "manual");
         return result;
     }
 
@@ -86,6 +87,7 @@ public class FkhScaleContainer : FkhServiceBase
             await SetAutoStopAnnotationAsync(client, deploymentName, autoStop.Value.StopAt);
         }
 
+        TrackContainerScaled("ContainerStarted", appName, "manual");
         return new
         {
             result.Container,
@@ -173,11 +175,21 @@ public class FkhScaleContainer : FkhServiceBase
             await client.ReplaceNamespacedDeploymentAsync(deployment, deploymentName, Namespace);
             await ClearAutoStopAnnotationAsync(client, deploymentName);
             await DeleteContainerLoadBalancerServiceAsync(client, appName);
+            TrackContainerScaled("ContainerStopped", appName, "stopall");
             stopped.Add(appName);
         }
 
         Logger.LogInformation("Stopped {Count} container(s).", stopped.Count);
         return new { StoppedCount = stopped.Count, StoppedContainers = stopped };
+    }
+
+    internal static void TrackContainerScaled(string eventName, string appName, string trigger)
+    {
+        FkhTelemetry.Track(eventName, new Dictionary<string, object?>
+        {
+            ["containerHash"] = FkhTelemetry.ContainerHash(appName),
+            ["trigger"] = trigger,
+        });
     }
 
     private record ScaleResult(string Container, string Deployment, int Replicas);

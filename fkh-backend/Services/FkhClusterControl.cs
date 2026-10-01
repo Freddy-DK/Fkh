@@ -57,6 +57,7 @@ public class FkhClusterControl : FkhServiceBase
         Logger.LogInformation("Stopping AKS cluster {Cluster} in resource group {RG}...", ClusterName, ResourceGroup);
         await cluster.StopAsync(Azure.WaitUntil.Started);
         Logger.LogInformation("AKS cluster {Cluster} stop initiated.", ClusterName);
+        TrackClusterEvent("ClusterStopped", "manual");
 
         return new { Message = "Cluster stop initiated. It may take a few minutes to fully stop.", PowerState = "Stopping", AutoStart = autoStartText };
     }
@@ -87,6 +88,7 @@ public class FkhClusterControl : FkhServiceBase
         Logger.LogInformation("Starting AKS cluster {Cluster} in resource group {RG}...", ClusterName, ResourceGroup);
         await cluster.StartAsync(Azure.WaitUntil.Started);
         Logger.LogInformation("AKS cluster {Cluster} start initiated.", ClusterName);
+        TrackClusterEvent("ClusterStarted", "manual");
 
         return new { Message = "Cluster start initiated. It may take a few minutes before the cluster is fully running.", PowerState = "Starting", AutoStop = autoStopText };
     }
@@ -105,13 +107,14 @@ public class FkhClusterControl : FkhServiceBase
         return data.ProvisioningState;
     }
 
-    public async Task StartClusterForScheduleAsync()
+    public async Task StartClusterForScheduleAsync(string trigger = "schedule")
     {
         Logger.LogInformation("Schedule: starting AKS cluster {Cluster}...", ClusterName);
         await GetClusterResource().StartAsync(Azure.WaitUntil.Started);
+        TrackClusterEvent("ClusterStarted", trigger);
     }
 
-    public async Task StopClusterForScheduleAsync()
+    public async Task StopClusterForScheduleAsync(string trigger = "schedule")
     {
         try
         {
@@ -124,7 +127,11 @@ public class FkhClusterControl : FkhServiceBase
 
         Logger.LogInformation("Schedule: stopping AKS cluster {Cluster}...", ClusterName);
         await GetClusterResource().StopAsync(Azure.WaitUntil.Started);
+        TrackClusterEvent("ClusterStopped", trigger);
     }
+
+    private static void TrackClusterEvent(string eventName, string trigger)
+        => FkhTelemetry.Track(eventName, new Dictionary<string, object?> { ["trigger"] = trigger });
 
     // ── One-off override persistence (settings-container blob) ──────────────────
 

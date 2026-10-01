@@ -37,66 +37,68 @@ resource "helm_release" "kubecost" {
   create_namespace = true
   wait             = false
 
-  set {
-    name  = "global.clusterId"
-    value = azurerm_kubernetes_cluster.this.name
-  }
+  set = [
+    {
+      name  = "global.clusterId"
+      value = azurerm_kubernetes_cluster.this.name
+    },
 
-  # Pin all Kubecost pods to Linux nodes (cluster also has Windows nodes)
-  set {
-    name  = "global.platforms.openshift.enabled"
-    value = "false"
-  }
-  set {
-    name  = "nodeSelector.kubernetes\\.io/os"
-    value = "linux"
-  }
-  set {
-    name  = "networkCosts.nodeSelector.kubernetes\\.io/os"
-    value = "linux"
-  }
-  set {
-    name  = "forecasting.nodeSelector.kubernetes\\.io/os"
-    value = "linux"
-  }
-  set {
-    name  = "finopsAgent.nodeSelector.kubernetes\\.io/os"
-    value = "linux"
-  }
-  set {
-    name  = "aggregator.nodeSelector.kubernetes\\.io/os"
-    value = "linux"
-  }
-  set {
-    name  = "cloudCost.nodeSelector.kubernetes\\.io/os"
-    value = "linux"
-  }
+    # Pin all Kubecost pods to Linux nodes (cluster also has Windows nodes)
+    {
+      name  = "global.platforms.openshift.enabled"
+      value = "false"
+    },
+    {
+      name  = "nodeSelector.kubernetes\\.io/os"
+      value = "linux"
+    },
+    {
+      name  = "networkCosts.nodeSelector.kubernetes\\.io/os"
+      value = "linux"
+    },
+    {
+      name  = "forecasting.nodeSelector.kubernetes\\.io/os"
+      value = "linux"
+    },
+    {
+      name  = "finopsAgent.nodeSelector.kubernetes\\.io/os"
+      value = "linux"
+    },
+    {
+      name  = "aggregator.nodeSelector.kubernetes\\.io/os"
+      value = "linux"
+    },
+    {
+      name  = "cloudCost.nodeSelector.kubernetes\\.io/os"
+      value = "linux"
+    },
 
-  # Reduce resource requests to fit on a shared node with SQL Server
-  set {
-    name  = "aggregator.resources.requests.memory"
-    value = "512Mi"
-  }
-  set {
-    name  = "aggregator.resources.requests.cpu"
-    value = "50m"
-  }
-  set {
-    name  = "forecasting.resources.requests.memory"
-    value = "128Mi"
-  }
-  set {
-    name  = "forecasting.resources.requests.cpu"
-    value = "10m"
-  }
-  set {
-    name  = "finopsAgent.resources.requests.memory"
-    value = "64Mi"
-  }
-  set {
-    name  = "finopsAgent.resources.requests.cpu"
-    value = "10m"
-  }
+    # Reduce resource requests to fit on a shared node with SQL Server
+    {
+      name  = "aggregator.resources.requests.memory"
+      value = "512Mi"
+    },
+    {
+      name  = "aggregator.resources.requests.cpu"
+      value = "50m"
+    },
+    {
+      name  = "forecasting.resources.requests.memory"
+      value = "128Mi"
+    },
+    {
+      name  = "forecasting.resources.requests.cpu"
+      value = "10m"
+    },
+    {
+      name  = "finopsAgent.resources.requests.memory"
+      value = "64Mi"
+    },
+    {
+      name  = "finopsAgent.resources.requests.cpu"
+      value = "10m"
+    },
+  ]
 
   depends_on = [azurerm_kubernetes_cluster.this]
 }

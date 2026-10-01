@@ -113,7 +113,7 @@ jobs:
           Write-Host "Resolved ref: $ref"
 
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.resolve.outputs.ref }}
           fetch-depth: 0
@@ -236,7 +236,7 @@ jobs:
         working-directory: fkh-vsix
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.release.outputs.ref }}
 
@@ -255,7 +255,7 @@ jobs:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 24
 
@@ -331,7 +331,7 @@ jobs:
         working-directory: fkh-cli
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.release.outputs.ref }}
 
@@ -342,7 +342,7 @@ jobs:
           user: freddy.dk
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: |
             8.0.x

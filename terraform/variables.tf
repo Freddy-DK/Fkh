@@ -33,6 +33,38 @@ variable "fkhDeploymentName" {
   type        = string
 }
 
+variable "registration" {
+  description = "Registration with the Fkh author, used to contact you about security patches and important updates. Sent to the central fkh-usage service on every deployment and linked to this deployment's anonymous usage data."
+  type = object({
+    company    = string
+    name       = string
+    githubUser = string
+    email      = string
+    phone      = string
+    address    = optional(string, "")
+    country    = optional(string, "")
+    website    = optional(string, "")
+    notes      = optional(string, "")
+  })
+  sensitive = true
+
+  validation {
+    condition = alltrue([for v in [var.registration.company, var.registration.name, var.registration.githubUser, var.registration.email, var.registration.phone] :
+    try(trimspace(v), "") != ""])
+    error_message = "registration.company, name, githubUser, email and phone are required in deployment.tfvars."
+  }
+
+  validation {
+    condition     = can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", trimspace(var.registration.email)))
+    error_message = "registration.email must be a valid email address."
+  }
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9](-?[A-Za-z0-9]){0,38}$", trimspace(var.registration.githubUser)))
+    error_message = "registration.githubUser must be a valid GitHub username (without @)."
+  }
+}
+
 # ── AKS ───────────────────────────────────────────────────────────────────────
 
 variable "linux_vm_size" {
@@ -45,6 +77,48 @@ variable "windows_vm_size" {
   description = "VM size for the Windows node pool. Use v5 series (v6 is not yet supported by AKS Windows nodes and SQL Server images)."
   type        = string
   default     = "Standard_D4s_v5"
+}
+
+variable "kubernetes_version" {
+  description = "AKS Kubernetes minor version (e.g. '1.35'). Patches within the minor are applied automatically in the maintenance window; minor upgrades only happen when this value is changed. Windows Server 2022 node pools are supported up to 1.36."
+  type        = string
+  default     = "1.35"
+
+  validation {
+    condition     = can(regex("^[0-9]+\\.[0-9]+$", var.kubernetes_version))
+    error_message = "kubernetes_version must be a minor version only (e.g. '1.35'), not a full patch version."
+  }
+}
+
+variable "aks_maintenance_window" {
+  description = "Weekly window in which AKS may apply Kubernetes patch upgrades and node OS image updates (nodes are drained, so running containers restart). duration is in hours (min 4)."
+  type = object({
+    day_of_week = optional(string, "Sunday")
+    start_time  = optional(string, "02:00")
+    duration    = optional(number, 4)
+    utc_offset  = optional(string, "+00:00")
+  })
+  default = {}
+
+  validation {
+    condition     = contains(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"], var.aks_maintenance_window.day_of_week)
+    error_message = "aks_maintenance_window.day_of_week must be a weekday name, e.g. 'Sunday'."
+  }
+
+  validation {
+    condition     = can(regex("^([01][0-9]|2[0-3]):[0-5][0-9]$", var.aks_maintenance_window.start_time))
+    error_message = "aks_maintenance_window.start_time must be in HH:mm format, e.g. '02:00'."
+  }
+
+  validation {
+    condition     = var.aks_maintenance_window.duration >= 4 && var.aks_maintenance_window.duration <= 24
+    error_message = "aks_maintenance_window.duration must be between 4 and 24 hours."
+  }
+
+  validation {
+    condition     = can(regex("^[+-][0-9]{2}:[0-9]{2}$", var.aks_maintenance_window.utc_offset))
+    error_message = "aks_maintenance_window.utc_offset must be in +HH:mm or -HH:mm format, e.g. '+01:00'."
+  }
 }
 
 variable "aks_sku_tier" {

@@ -799,7 +799,7 @@ public static class FunctionCatalog
         new FunctionDefinition
         {
             Name = "Status",
-            Description = "Returns system status including Kubernetes nodes, BC containers, SQL, storage, quotas, and security. Admin only.",
+            Description = "Returns system status including AKS/node pool versions, Kubernetes nodes, BC containers, SQL, storage, quotas, and security. Admin only.",
             Route = "Status",
             Hidden = true,
             AdminOnly = true,

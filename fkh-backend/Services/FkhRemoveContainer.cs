@@ -28,10 +28,12 @@ public class FkhRemoveContainer : FkhServiceBase
 
         // Read AAD app object ID from deployment annotation before deleting it
         string? aadAppObjectId = null;
+        DateTime? createdAt = null;
         try
         {
             var deployment = await client.ReadNamespacedDeploymentAsync(deploymentName, Namespace);
             deployment.Metadata?.Annotations?.TryGetValue("fkh/aad-app-object-id", out aadAppObjectId);
+            createdAt = deployment.Metadata?.CreationTimestamp;
         }
         catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
@@ -61,6 +63,12 @@ public class FkhRemoveContainer : FkhServiceBase
         results.Add(await TryDeleteContainerBlobsAsync(appName));
 
         Logger.LogInformation("Container '{AppName}' removal complete.", appName);
+        FkhTelemetry.Track("ContainerRemoved", new Dictionary<string, object?>
+        {
+            ["containerHash"] = FkhTelemetry.ContainerHash(appName),
+            ["userHash"] = FkhTelemetry.UserHash(githubUsername),
+            ["ageDays"] = createdAt is { } c ? Math.Round((DateTime.UtcNow - c.ToUniversalTime()).TotalDays, 1) : null,
+        });
         return new { Container = appName, Results = results };
     }
 

@@ -29,7 +29,9 @@ public class FkhStatus : FkhServiceBase
 #pragma warning restore CS0618
 
         // Check cluster power state first — if not running, return minimal status
-        var powerState = await GetClusterPowerStateAsync(credential);
+        var (clusterResource, clusterData) = await GetClusterAsync(credential);
+        var powerState = clusterData?.PowerStateCode?.ToString();
+        var aksInfo = await GetAksInfoAsync(clusterResource, clusterData);
 
         // Collect version/deployment info (same env vars as GetVersion)
         string? clusterVersion = null, clusterDeployedAt = null;
@@ -65,6 +67,7 @@ public class FkhStatus : FkhServiceBase
                 ClusterPowerState = powerState ?? "Unknown",
                 BackendUrl = $"https://{Environment.GetEnvironmentVariable("WEBSITE_HOSTNAME")}/api",
                 Version = versionInfo,
+                Aks = aksInfo,
                 ClusterSchedule = clusterSchedule,
                 Message = string.Equals(powerState, "Stopped", StringComparison.OrdinalIgnoreCase)
                     ? "The cluster is stopped. Use 'fkh startfkh' to start it."
@@ -86,6 +89,7 @@ public class FkhStatus : FkhServiceBase
             ClusterPowerState = powerState,
             BackendUrl = $"https://{Environment.GetEnvironmentVariable("WEBSITE_HOSTNAME")}/api",
             Version = versionInfo,
+            Aks = aksInfo,
             ClusterSchedule = clusterSchedule,
             Kubernetes = await kubeTask,
             Storage = await storageTask,
@@ -107,22 +111,88 @@ public class FkhStatus : FkhServiceBase
         }
     }
 
-    private async Task<string?> GetClusterPowerStateAsync(Azure.Core.TokenCredential credential)
+    private async Task<(ContainerServiceManagedClusterResource? Resource, ContainerServiceManagedClusterData? Data)> GetClusterAsync(Azure.Core.TokenCredential credential)
     {
         try
         {
             var armClient = new ArmClient(credential);
             var aksId = ContainerServiceManagedClusterResource
                 .CreateResourceIdentifier(SubscriptionId, ResourceGroup, ClusterName);
-            var cluster = armClient.GetContainerServiceManagedClusterResource(aksId);
-            var data = (await cluster.GetAsync()).Value.Data;
-            return data.PowerStateCode?.ToString();
+            var cluster = (await armClient.GetContainerServiceManagedClusterResource(aksId).GetAsync()).Value;
+            return (cluster, cluster.Data);
         }
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "Failed to check AKS cluster power state");
-            return null;
+            return (null, null);
         }
+    }
+
+    private async Task<object?> GetAksInfoAsync(ContainerServiceManagedClusterResource? cluster, ContainerServiceManagedClusterData? data)
+    {
+        if (cluster is null || data is null)
+            return null;
+
+        List<string>? availableUpgrades = null;
+        try
+        {
+            var upgradeProfile = (await cluster.GetManagedClusterUpgradeProfile().GetAsync()).Value.Data;
+            availableUpgrades = upgradeProfile.ControlPlaneProfile?.Upgrades?
+                .Select(u => u.IsPreview == true ? $"{u.KubernetesVersion} (preview)" : u.KubernetesVersion)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to get AKS upgrade profile");
+        }
+
+        var pools = new List<object>();
+        foreach (var pool in data.AgentPoolProfiles.OrderBy(p => p.Name))
+        {
+            string? latestNodeImage = null;
+            try
+            {
+                var agentPool = (await cluster.GetContainerServiceAgentPoolAsync(pool.Name)).Value;
+                latestNodeImage = (await agentPool.GetAgentPoolUpgradeProfile().GetAsync()).Value.Data.LatestNodeImageVersion;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to get upgrade profile for agent pool {Pool}", pool.Name);
+            }
+
+            pools.Add(new
+            {
+                pool.Name,
+                Mode = pool.Mode?.ToString(),
+                OsType = pool.OSType?.ToString(),
+                OsSku = pool.OSSku?.ToString(),
+                pool.VmSize,
+                NodeCount = pool.Count,
+                MinCount = pool.MinCount,
+                MaxCount = pool.MaxCount,
+                Priority = pool.ScaleSetPriority?.ToString(),
+                OrchestratorVersion = pool.OrchestratorVersion,
+                CurrentOrchestratorVersion = pool.CurrentOrchestratorVersion,
+                NodeImageVersion = pool.NodeImageVersion,
+                LatestNodeImageVersion = latestNodeImage,
+                NodeImageUpToDate = latestNodeImage is null ? (bool?)null : string.Equals(pool.NodeImageVersion, latestNodeImage, StringComparison.OrdinalIgnoreCase),
+                pool.ProvisioningState,
+                PowerState = pool.PowerStateCode?.ToString(),
+            });
+        }
+
+        return new
+        {
+            KubernetesVersion = data.KubernetesVersion,
+            CurrentKubernetesVersion = data.CurrentKubernetesVersion,
+            AvailableUpgrades = availableUpgrades,
+            SkuTier = data.Sku?.Tier?.ToString(),
+            SupportPlan = data.SupportPlan?.ToString(),
+            AutoUpgradeChannel = data.AutoUpgradeProfile?.UpgradeChannel?.ToString(),
+            NodeOsUpgradeChannel = data.AutoUpgradeProfile?.NodeOSUpgradeChannel?.ToString(),
+            data.ProvisioningState,
+            NodePools = pools,
+        };
     }
 
     private async Task<object> GetKubernetesStatusAsync()

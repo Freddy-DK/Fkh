@@ -74,12 +74,12 @@ jobs:
     steps:
       # ── Checkout ──────────────────────────────────────────────────────────
       - name: Checkout deployment repo (for tfvars)
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: deployment
 
       - name: Checkout Fkh fork (for terraform + backend code)
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: ${{ inputs.fkh-repo }}
           ref: ${{ inputs.fkh-ref }}
@@ -135,6 +135,15 @@ jobs:
             throw "Could not find $Name in $File"
           }
 
+          # Fail fast (Terraform validates the same rules, but only after state setup).
+          if ((Get-Content $varFile -Raw) -notmatch '(?ms)^\s*registration\s*=\s*\{(.*?)^\s*\}') {
+            throw "The registration block is missing in config/deployment.tfvars. See Installation/Step5-ConfigureEnvironment.md."
+          }
+          $registrationBlock = $Matches[1]
+          $missing = @('company', 'name', 'githubUser', 'email', 'phone') | Where-Object { $registrationBlock -notmatch "(?m)^\s*$_\s*=\s*""\s*[^""\s]" }
+          if ($missing) {
+            throw "registration in config/deployment.tfvars is missing required fields: $($missing -join ', ')."
+          }
           $subscriptionId = Get-TfVar "subscription_id" $varFile
           $tenantId       = Get-TfVar "tenant_id" $varFile
           $deployClientId = Get-TfVar "azure_deploy_client_id" $varFile
@@ -181,7 +190,7 @@ jobs:
           terraform_wrapper: false
 
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
@@ -189,7 +198,7 @@ jobs:
         # Pin an explicit version rather than @4: a newly published Core Tools
         # release can be tagged in npm before its CDN zip exists, causing the
         # post-install download to 404 (e.g. 4.13.2).
-        run: npm install -g azure-functions-core-tools@4.12.1 --unsafe-perm true
+        run: npm install -g azure-functions-core-tools@4.15.1 --unsafe-perm true
 
       - name: Azure CLI login (OIDC)
         uses: azure/login@v3
@@ -468,6 +477,30 @@ jobs:
             --resource-group $resourceGroupName `
             --settings @settings `
             --output none
+
+      # ── Registration with the central fkh-usage service ──────────────────
+      # Sent on every deployment so the Fkh author can reach you about security patches. The payload is never printed.
+      - name: Register deployment with fkh-usage
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          try {
+            $payloadJson = terraform output -json registration_payload 2>$null | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0 -or -not $payloadJson) {
+              throw "registration_payload output is missing."
+            }
+            $endpoint = terraform output -raw usage_endpoint
+            $payload = $payloadJson | ConvertFrom-Json
+            $payload | Add-Member -NotePropertyName fkhVersion -NotePropertyValue "${{ inputs.fkh-ref }}"
+            $payload | Add-Member -NotePropertyName fkhFork -NotePropertyValue "${{ inputs.fkh-repo }}"
+            $payload | Add-Member -NotePropertyName deploymentRepo -NotePropertyValue "${{ github.repository }}"
+            $body = $payload | ConvertTo-Json -Depth 5 -Compress
+            Invoke-RestMethod -Method Post -Uri "$endpoint/register" -Body $body -ContentType 'application/json' -TimeoutSec 20 | Out-Null
+            Write-Host "Deployment registered with fkh-usage."
+          }
+          catch {
+            Write-Host "::warning::Registration with fkh-usage failed: $($_.Exception.Message)"
+          }
 
       - name: Publish Azure Function (staging)
         shell: pwsh

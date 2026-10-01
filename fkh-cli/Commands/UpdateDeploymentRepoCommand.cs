@@ -345,12 +345,24 @@ sealed class UpdateDeploymentRepoCommand : ClientCommand
     {
         var oldValues = ParseTfvarsValues(oldContent);
         var newLines = newContent.Split('\n');
+        var newKeys = newLines.Select(ExtractTfvarsKey).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var emitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var result = new List<string>();
 
         for (int i = 0; i < newLines.Length; i++)
         {
             var line = newLines[i];
             var key = ExtractTfvarsKey(line);
+
+            // Optional settings only present as a commented-out example in the template
+            // (e.g. "# registration = {") keep the user's active value, placed above the example.
+            if (key is null && ExtractCommentedTfvarsKey(line) is { } commentedKey
+                && !newKeys.Contains(commentedKey) && !emitted.Contains(commentedKey)
+                && oldValues.TryGetValue(commentedKey, out var activeValue))
+            {
+                result.AddRange(activeValue.Split('\n'));
+                emitted.Add(commentedKey);
+            }
 
             if (key is null || !oldValues.TryGetValue(key, out var oldValue))
             {
@@ -423,6 +435,13 @@ sealed class UpdateDeploymentRepoCommand : ClientCommand
             return null;
 
         return key;
+    }
+
+    static string? ExtractCommentedTfvarsKey(string line)
+    {
+        var trimmed = line.TrimStart();
+        if (trimmed.Length < 2 || trimmed[0] != '#') return null;
+        return ExtractTfvarsKey(trimmed[1..]);
     }
 
     /// <summary>

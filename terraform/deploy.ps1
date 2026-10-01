@@ -364,6 +364,19 @@ if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($stagingFunctionA
     if ($LASTEXITCODE -ne 0) { throw "Staging function publish failed." }
 }
 
+# ── Register with the central fkh-usage service (failures only warn) ──────────
+
+try {
+    $registrationPayload = terraform output -raw registration_payload
+    if ($LASTEXITCODE -ne 0) { throw "registration_payload output is missing." }
+    $usageEndpoint = terraform output -raw usage_endpoint
+    Invoke-RestMethod -Method Post -Uri "$usageEndpoint/register" -Body $registrationPayload -ContentType 'application/json' -TimeoutSec 20 | Out-Null
+    Write-Host "Deployment registered with fkh-usage." -ForegroundColor Green
+}
+catch {
+    Write-Host "Registration with fkh-usage failed: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
 # ── Step 5: Sync GitHub Actions secrets from Terraform outputs ────────────────
 
 $ghCommand = Get-Command gh -ErrorAction SilentlyContinue

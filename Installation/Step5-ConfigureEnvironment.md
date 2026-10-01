@@ -35,6 +35,35 @@ fkh-contoso-backend
 
 Use lowercase letters and numbers only. Uppercase letters, hyphens, and other special characters are not allowed because Azure storage account names derived from this value have the same restrictions.
 
+### Registration (required)
+
+```hcl
+registration = {
+  company    = "Contoso"
+  name       = "Jane Doe"
+  githubUser = "janedoe"
+  email      = "jane@contoso.com"
+  phone      = "+45 12345678"
+  address    = ""
+  country    = "Denmark"
+  website    = "https://contoso.com"
+  notes      = ""
+}
+```
+
+The registration lets the Fkh author contact the people running Fkh about security patches and important updates. The deploy workflow sends it (plus deployment name, region, backend/web URLs and Fkh version) to the central fkh-usage service on every deployment, where it is linked to your deployment's anonymous usage data.
+
+| Setting | Required | What to enter |
+|---|---|---|
+| `company` | Yes | Company or organization running this deployment |
+| `name` | Yes | Contact person |
+| `githubUser` | Yes | Contact person's GitHub username (without `@`) |
+| `email` | Yes | Contact email |
+| `phone` | Yes | Contact phone number |
+| `address`, `country`, `website`, `notes` | No | Leave empty if not needed |
+
+The deployment fails if a required field is empty. Keep the contact details up to date — changes are sent on the next deployment.
+
 ### Azure settings
 
 ```hcl

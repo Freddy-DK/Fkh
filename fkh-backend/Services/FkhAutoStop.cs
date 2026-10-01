@@ -55,6 +55,7 @@ public class FkhAutoStop : FkhServiceBase
                 if (!string.IsNullOrEmpty(appName))
                 {
                     await DeleteContainerLoadBalancerServiceAsync(client, appName);
+                    FkhScaleContainer.TrackContainerScaled("ContainerStopped", appName, "autostop");
                 }
                 stopped++;
             }

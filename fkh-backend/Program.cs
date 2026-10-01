@@ -64,7 +64,17 @@ var host = new HostBuilder()
         services.AddSingleton<FkhNewUser>();
         services.AddSingleton<FkhGetContainerDetails>();
         services.AddSingleton<FkhKeyVault>();
+        services.AddSingleton<FkhUsageSnapshot>();
     })
     .Build();
+
+try
+{
+    host.Services.GetRequiredService<FkhUsageSnapshot>().TrackBackendStarted();
+}
+catch
+{
+    // Missing configuration (e.g. local runs) — skip usage telemetry.
+}
 
 host.Run();
