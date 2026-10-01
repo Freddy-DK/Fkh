@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Fkh.Models;
 
 /// <summary>Recurring cluster uptime schedule, stored as the '_admins.Uptime' setting.</summary>
@@ -45,6 +47,22 @@ public sealed class ClusterScheduleOverrides
     /// re-firing, so a manual start/stop is respected until the next scheduled edge.</summary>
     public DateTimeOffset? LastScheduleStart { get; set; }
     public DateTimeOffset? LastScheduleStop { get; set; }
+
+    /// <summary>Start of the maintenance hold already handled, so a manual stop during it is respected.</summary>
+    public DateTimeOffset? MaintenanceHandled { get; set; }
+
+    /// <summary>Set when the scheduler started the cluster for maintenance: when to stop it again.</summary>
+    public DateTimeOffset? MaintenanceStopAt { get; set; }
+}
+
+/// <summary>AKS node OS maintenance window, from the AKS_MAINTENANCE_WINDOW app setting (Terraform jsonencode).</summary>
+public sealed class MaintenanceWindowConfig
+{
+    [JsonPropertyName("frequency")] public string? Frequency { get; set; }
+    [JsonPropertyName("day_of_week")] public string? DayOfWeek { get; set; }
+    [JsonPropertyName("start_time")] public string? StartTime { get; set; }
+    [JsonPropertyName("utc_offset")] public string? UtcOffset { get; set; }
+    [JsonPropertyName("duration")] public int Duration { get; set; }
 }
 
 /// <summary>Computed view of the cluster schedule for status reporting.</summary>

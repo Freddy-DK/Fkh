@@ -111,6 +111,20 @@ resource "azurerm_kubernetes_cluster" "this" {
     msi_auth_for_monitoring_enabled = true
   }
 
+  node_os_upgrade_channel = "NodeImage"
+
+  dynamic "maintenance_window_node_os" {
+    for_each = var.aks_maintenance_window == null ? [] : [var.aks_maintenance_window]
+    content {
+      frequency   = maintenance_window_node_os.value.frequency
+      interval    = 1
+      day_of_week = maintenance_window_node_os.value.frequency == "Weekly" ? maintenance_window_node_os.value.day_of_week : null
+      start_time  = maintenance_window_node_os.value.start_time
+      utc_offset  = maintenance_window_node_os.value.utc_offset
+      duration    = maintenance_window_node_os.value.duration
+    }
+  }
+
   tags = azurerm_resource_group.this.tags
 }
 

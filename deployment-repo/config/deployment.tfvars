@@ -65,6 +65,28 @@ windows_spot_vm_size         = "Standard_D2ds_v5" # VM size for spot nodes
 windows_spot_min_node_count  = 0                  # Minimum spot nodes (0 = scale to zero when idle)
 windows_spot_max_node_count  = 10                 # Maximum spot nodes the autoscaler can scale to
 
+# AKS maintenance window — when AKS automatically upgrades the node OS images.
+# Updated during the window (nodes are reimaged one at a time):
+#   - Node OS image of all node pools: Ubuntu (Linux) and Windows Server security patches,
+#     container runtime and other components shipped in the AKS node image.
+#   - The SQL pod moves to the reimaged Linux node (a few minutes of SQL downtime) and pulls the
+#     mssql-server-fts image currently in ACR (as pushed by the last Deploy Full Stack).
+#   - BC containers on reimaged Windows nodes are restarted.
+# NOT updated:
+#   - Kubernetes version, and the Ubuntu release that follows it (22.04 -> 24.04 at Kubernetes 1.35).
+#   - SQL Server CU (mssql-server-fts image) — only rebuilt by Deploy Full Stack.
+#   - Business Central images, Function App and web app.
+# A stopped cluster is never upgraded, so the Fkh scheduler starts the cluster 30 minutes before the
+# window and stops it again afterwards (unless the uptime schedule wants it running).
+# utc_offset is fixed (does not follow daylight saving time). Set to null to let AKS upgrade at any time.
+aks_maintenance_window = {
+  frequency   = "Weekly"   # Weekly | Daily
+  day_of_week = "Sunday"   # Monday..Sunday (Weekly only)
+  start_time  = "01:00"    # HH:mm
+  utc_offset  = "+01:00"   # +HH:mm / -HH:mm
+  duration    = 4          # hours (4-24)
+}
+
 # Images to pre-pull on Windows nodes (speeds up container creation)
 windows_prepull_images = [
   # "<acr-name>.azurecr.io/businesscentral:<tag>"
