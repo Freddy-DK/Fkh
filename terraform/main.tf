@@ -104,22 +104,28 @@ resource "azurerm_kubernetes_cluster" "this" {
   automatic_upgrade_channel = "patch"
   node_os_upgrade_channel   = "NodeImage"
 
-  maintenance_window_auto_upgrade {
-    frequency   = "Weekly"
-    interval    = 1
-    day_of_week = var.aks_maintenance_window.day_of_week
-    start_time  = var.aks_maintenance_window.start_time
-    duration    = var.aks_maintenance_window.duration
-    utc_offset  = var.aks_maintenance_window.utc_offset
+  dynamic "maintenance_window_auto_upgrade" {
+    for_each = var.aks_maintenance_window == null ? [] : [var.aks_maintenance_window]
+    content {
+      frequency   = maintenance_window_auto_upgrade.value.frequency
+      interval    = 1
+      day_of_week = maintenance_window_auto_upgrade.value.frequency == "Weekly" ? maintenance_window_auto_upgrade.value.day_of_week : null
+      start_time  = maintenance_window_auto_upgrade.value.start_time
+      utc_offset  = maintenance_window_auto_upgrade.value.utc_offset
+      duration    = maintenance_window_auto_upgrade.value.duration
+    }
   }
 
-  maintenance_window_node_os {
-    frequency   = "Weekly"
-    interval    = 1
-    day_of_week = var.aks_maintenance_window.day_of_week
-    start_time  = var.aks_maintenance_window.start_time
-    duration    = var.aks_maintenance_window.duration
-    utc_offset  = var.aks_maintenance_window.utc_offset
+  dynamic "maintenance_window_node_os" {
+    for_each = var.aks_maintenance_window == null ? [] : [var.aks_maintenance_window]
+    content {
+      frequency   = maintenance_window_node_os.value.frequency
+      interval    = 1
+      day_of_week = maintenance_window_node_os.value.frequency == "Weekly" ? maintenance_window_node_os.value.day_of_week : null
+      start_time  = maintenance_window_node_os.value.start_time
+      utc_offset  = maintenance_window_node_os.value.utc_offset
+      duration    = maintenance_window_node_os.value.duration
+    }
   }
 
   default_node_pool {
@@ -152,20 +158,6 @@ resource "azurerm_kubernetes_cluster" "this" {
   oms_agent {
     log_analytics_workspace_id      = azurerm_log_analytics_workspace.this.id
     msi_auth_for_monitoring_enabled = true
-  }
-
-  node_os_upgrade_channel = "NodeImage"
-
-  dynamic "maintenance_window_node_os" {
-    for_each = var.aks_maintenance_window == null ? [] : [var.aks_maintenance_window]
-    content {
-      frequency   = maintenance_window_node_os.value.frequency
-      interval    = 1
-      day_of_week = maintenance_window_node_os.value.frequency == "Weekly" ? maintenance_window_node_os.value.day_of_week : null
-      start_time  = maintenance_window_node_os.value.start_time
-      utc_offset  = maintenance_window_node_os.value.utc_offset
-      duration    = maintenance_window_node_os.value.duration
-    }
   }
 
   tags = azurerm_resource_group.this.tags
