@@ -341,6 +341,7 @@ type FunctionDefinition = {
   description: string;
   route: string;
   parameters: FunctionParameterDefinition[];
+  requiresConfirmation?: boolean;
 };
 
 type FunctionCatalogResponse = {
@@ -854,6 +855,16 @@ async function invokeFunctionByName(functionName: string, prefilled: Record<stri
 
   const parameters = await promptForParameters(definition, prefilled, context, prefilledDefaults);
   if (!parameters) { return; }
+
+  if (definition.requiresConfirmation) {
+    const confirm = await vscode.window.showWarningMessage(
+      `${definition.name} requires confirmation. Are you sure you want to continue?`,
+      { modal: true },
+      'Continue'
+    );
+    if (confirm !== 'Continue') { return; }
+    parameters.confirm = 'true';
+  }
 
   // Send the client's timezone so the server can resolve time-of-day autostop values
   parameters['_timezone'] = vscode.workspace.getConfiguration('fkh').get<string>('timezone', '').trim()
