@@ -832,7 +832,8 @@ public abstract class FkhServiceBase
         var cleanupResult = await ExecInMssqlPodAsync(client, podName,
             $"rm -f '{backupFilePath}' && echo 'BACKUP_FILE_REMOVED'");
         if (!cleanupResult.Stdout.Contains("BACKUP_FILE_REMOVED"))
-            throw new InvalidOperationException($"Failed to remove backup file for database '{databaseName}'. {cleanupResult}");
+            Logger.LogWarning("Could not remove backup file for database '{DatabaseName}' after restore. Restore will continue. {Result}",
+                databaseName, cleanupResult);
 
         var (shrunk, shrinkLogResult) = await ShrinkDatabaseLogAsync(client, podName, databaseName, logLogicalName);
         if (!shrunk)
