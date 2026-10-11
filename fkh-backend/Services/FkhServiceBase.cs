@@ -828,9 +828,32 @@ public abstract class FkhServiceBase
         if (!restoreResult.Stdout.Contains("RESTORE_COMPLETE"))
             throw new InvalidOperationException($"Failed to restore database '{databaseName}'. {restoreResult}");
 
-        // Step 4: Clean up the backup file
-        await ExecInMssqlPodAsync(client, podName, $"rm -f '/var/opt/mssql/data/{databaseName}.bak'");
+        var backupFilePath = $"/var/opt/mssql/data/{databaseName}.bak";
+        var cleanupResult = await ExecInMssqlPodAsync(client, podName,
+            $"rm -f '{backupFilePath}' && echo 'BACKUP_FILE_REMOVED'");
+        if (!cleanupResult.Stdout.Contains("BACKUP_FILE_REMOVED"))
+            throw new InvalidOperationException($"Failed to remove backup file for database '{databaseName}'. {cleanupResult}");
+
+        var (shrunk, shrinkLogResult) = await ShrinkDatabaseLogAsync(client, podName, databaseName, logLogicalName);
+        if (!shrunk)
+            Logger.LogWarning("Could not shrink log file for database '{DatabaseName}' after restore. Restore will continue. {Result}",
+                databaseName, shrinkLogResult);
+
         Logger.LogInformation("Database '{DatabaseName}' restored successfully.", databaseName);
+    }
+
+    protected async Task<(bool Succeeded, ExecResult Result)> ShrinkDatabaseLogAsync(
+        Kubernetes client, string podName, string databaseName, string logLogicalName)
+    {
+        var identifier = $"[{databaseName.Replace("]", "]]", StringComparison.Ordinal)}]";
+        var logicalNameLiteral = logLogicalName.Replace("'", "''", StringComparison.Ordinal);
+        var sql = $"ALTER DATABASE {identifier} SET RECOVERY SIMPLE; " +
+            $"USE {identifier}; CHECKPOINT; " +
+            $"DBCC SHRINKFILE (N'{logicalNameLiteral}', 0); PRINT N'LOG_SHRINK_COMPLETE'";
+        var quotedSql = $"'{sql.Replace("'", "'\\''", StringComparison.Ordinal)}'";
+        var script = $"{SqlcmdPath} -S localhost -U sa -P \"$MSSQL_SA_PASSWORD\" -C -b -Q {quotedSql}";
+        var result = await ExecInMssqlPodAsync(client, podName, script);
+        return (result.Stdout.Contains("LOG_SHRINK_COMPLETE", StringComparison.Ordinal), result);
     }
 
     protected async Task<ExecResult> ExecInBcPodAsync(Kubernetes client, string podName, string containerName, string psScript, bool usePwsh = true)

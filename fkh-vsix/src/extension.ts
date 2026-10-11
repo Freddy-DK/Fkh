@@ -631,7 +631,7 @@ async function promptForParameters(
   }
 
   // Single parameter: use simple input box
-  if (promptParams.length === 1) {
+  if (promptParams.length === 1 && promptParams[0].type.toLowerCase() !== 'boolean') {
     const param = promptParams[0];
     const defaultVal = resolvedDefaults[param.name] ?? param.defaultValue ?? '';
     const settingKey = `${definition.name}.${param.name}`;

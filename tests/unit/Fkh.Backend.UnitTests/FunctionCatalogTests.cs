@@ -74,6 +74,18 @@ public class FunctionCatalogTests
     }
 
     [Fact]
+    public void CleanupFkh_is_admin_only_and_requires_confirmation()
+    {
+        var cleanup = FunctionCatalog.Functions.Single(f => f.Name == "cleanupFkh");
+
+        Assert.True(cleanup.AdminOnly);
+        Assert.True(cleanup.RequiresConfirmation);
+        var force = cleanup.Parameters.Single(p => p.Name == "force");
+        Assert.Equal("boolean", force.Type);
+        Assert.Null(force.DefaultValue);
+    }
+
+    [Fact]
     public void Hidden_functions_match_the_expected_set()
     {
         // Hidden functions are excluded from the public /functions catalog, so the E2E auth sweep
