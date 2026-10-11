@@ -52,6 +52,7 @@ A GitHub-authenticated Azure Function acts as the provisioning gate; Terraform m
 
 ### Developer Productivity
 - Publish .app files to running containers
+- Run AL tests inside containers by published test app ID with JUnit output
 - Run PowerShell scripts inside containers
 - Copy files to and from containers
 - Edit files in containers (download, edit locally, auto-upload on close)
@@ -85,6 +86,72 @@ A GitHub-authenticated Azure Function acts as the provisioning gate; Terraform m
 - PowerShell tab completion
 - Deployment repo creation and update (syncs workflow templates from your Fkh fork)
 - `--nowait` mode for long-running operations
+
+The typical coding-agent loop publishes freshly built app packages, runs the
+published test app, and uses the JUnit result to decide whether to continue
+coding or complete the task:
+
+```mermaid
+sequenceDiagram
+	actor Agent
+	participant Build as AL build
+	participant CLI as fkh CLI
+	participant API as Fkh backend
+	participant BC as Business Central container
+
+	Agent->>Build: Build main app and test app
+	Build-->>Agent: .app packages
+	Agent->>CLI: importtesttoolkit
+	CLI->>API: Import test toolkit
+	API->>BC: Publish and install test framework and runner
+	Agent->>CLI: publishapp main app
+	CLI->>API: Upload and publish
+	API->>BC: Publish, sync, and install
+	Agent->>CLI: publishapp test app
+	CLI->>API: Upload and publish
+	API->>BC: Publish, sync, and install
+	Agent->>CLI: runtests with test app ID
+	CLI->>API: POST /RunTests
+	API->>BC: Run matching AL tests
+	BC-->>API: JUnit and bounded diagnostics
+	API-->>CLI: Counts, outcome, and JUnit
+	CLI-->>Agent: Save TestResults.xml
+
+	alt All tests pass
+		CLI-->>Agent: Exit 0 - complete the task
+	else An AL test fails
+		CLI-->>Agent: Exit 1 - inspect JUnit and continue coding
+	else Test infrastructure fails
+		CLI-->>Agent: Exit 2 - report infrastructure failure
+	end
+```
+
+```powershell
+fkh importtesttoolkit --name mycontainer
+fkh publishapp --name mycontainer --appFile .\MyApp.app --install
+fkh publishapp --name mycontainer --appFile .\MyTests.app --install
+fkh runtests --name mycontainer --tenant default `
+	--extensionId 11111111-1111-1111-1111-111111111111 `
+	--testCodeunitRange "50100|50105..50110" `
+	--appName "My Tests" --output TestResults.xml --useOIDC
+```
+
+Omit `--testCodeunitRange` to run every test codeunit in the specified test app.
+The range uses standard Business Central filter syntax, allowing an agent or CI
+workflow to pass the IDs of changed test codeunits.
+
+A test run is aborted inside the container after 30 minutes. Pass
+`--timeoutMinutes <1-120>` to use a different hard timeout for long-running
+suites.
+
+Test execution currently requires a container using `NavUserPassword`
+authentication. The built-in toolkit import installs the toolkit in the
+`default` tenant; for another tenant, install the Test Runner app there before
+calling `runtests --tenant <tenant>`.
+
+The command writes trustworthy, non-empty JUnit before returning. Exit code `0`
+means all tests passed, `1` means JUnit contains test failures or errors, and `2`
+means the request or test infrastructure failed.
 
 ### Admin Features
 - Start and stop the entire AKS cluster with everything persisted

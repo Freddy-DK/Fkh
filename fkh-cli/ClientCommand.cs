@@ -14,6 +14,7 @@ abstract class ClientCommand
     public abstract string Name { get; }
     public abstract string Description { get; }
     public abstract List<ClientCommandParameter> Parameters { get; }
+    public virtual bool SupportsNowait => true;
     public abstract Task<int> ExecuteAsync(string[] args, CliSettings settings, bool asJson);
 
     protected static Dictionary<string, string> ParseClientArgs(string[] args)
@@ -361,6 +362,7 @@ static class ClientCommands
     public static List<ClientCommand> All { get; } =
     [
         new ApplyALGoOverridesCommand(),
+        new RunTestsCommand(),
         new PublishAppCommand(),
         new UploadDatabaseCommand(),
         new DownloadDatabaseCommand(),
