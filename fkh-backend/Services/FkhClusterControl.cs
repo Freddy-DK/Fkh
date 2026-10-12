@@ -101,6 +101,12 @@ public class FkhClusterControl : FkhServiceBase
         return data.PowerStateCode?.ToString();
     }
 
+    public async Task<string?> GetProvisioningStateAsync()
+    {
+        var data = (await GetClusterResource().GetAsync()).Value.Data;
+        return data.ProvisioningState;
+    }
+
     public async Task StartClusterForScheduleAsync(string trigger = "schedule")
     {
         Logger.LogInformation("Schedule: starting AKS cluster {Cluster}...", ClusterName);

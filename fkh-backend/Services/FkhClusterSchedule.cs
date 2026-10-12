@@ -14,11 +14,14 @@ public class FkhClusterSchedule
 {
     private static readonly string[] DayKeys = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
     private const int ScanDays = 14;
+    // Start early so the cluster is fully running when the AKS maintenance window opens.
+    private static readonly TimeSpan MaintenanceLeadTime = TimeSpan.FromMinutes(30);
 
     private readonly ILogger<FkhClusterSchedule> _logger;
     private readonly FkhClusterControl _clusterControl;
     private readonly FkhUserSettings _settings;
     private readonly FkhHolidayService _holidays;
+    private readonly MaintenanceWindow? _maintenanceWindow;
 
     public FkhClusterSchedule(
         ILogger<FkhClusterSchedule> logger,
@@ -30,6 +33,7 @@ public class FkhClusterSchedule
         _clusterControl = clusterControl;
         _settings = settings;
         _holidays = holidays;
+        _maintenanceWindow = ParseMaintenanceWindow(Environment.GetEnvironmentVariable("AKS_MAINTENANCE_WINDOW"));
     }
 
     public async Task CheckAndApplyScheduleAsync()
@@ -44,6 +48,53 @@ public class FkhClusterSchedule
             return;
 
         var overrides = await _clusterControl.GetOverridesAsync();
+
+        // 0. AKS maintenance window: AKS skips node image upgrades on a stopped cluster, so keep it running.
+        //    Stops (scheduled or one-off) are deferred until the window has ended.
+        if (GetMaintenanceHold(nowUtc) is { } hold)
+        {
+            if (overrides.MaintenanceHandled != hold.Start)
+            {
+                if (stopped)
+                {
+                    _logger.LogInformation("Schedule: starting cluster for AKS maintenance window ({Start} - {End} UTC).", hold.Start, hold.End);
+                    await _clusterControl.StartClusterForScheduleAsync();
+                    overrides.MaintenanceStopAt = hold.End;
+                }
+                overrides.MaintenanceHandled = hold.Start;
+                await _clusterControl.SaveOverridesAsync(overrides);
+            }
+            return;
+        }
+
+        if (overrides.MaintenanceStopAt is not null)
+        {
+            if (stopped)
+            {
+                overrides.MaintenanceStopAt = null;
+                await _clusterControl.SaveOverridesAsync(overrides);
+                return;
+            }
+
+            // An upgrade started in the window may still be running — wait until it reaches a terminal state.
+            var provisioningState = await _clusterControl.GetProvisioningStateAsync();
+            if (provisioningState is not null
+                && !new[] { "Succeeded", "Failed", "Canceled" }.Contains(provisioningState, StringComparer.OrdinalIgnoreCase))
+                return;
+
+            overrides.MaintenanceStopAt = null;
+            await _clusterControl.SaveOverridesAsync(overrides);
+
+            var uptime = await GetUptimeConfigAsync();
+            var desiredRunning = uptime?.Weekdays is { Count: > 0 }
+                && await ComputeDesiredRunningAsync(uptime, ResolveTimeZone(uptime.TimeZone), nowUtc);
+            if (!desiredRunning)
+            {
+                _logger.LogInformation("Schedule: stopping cluster after AKS maintenance window.");
+                await _clusterControl.StopClusterForScheduleAsync();
+            }
+            return;
+        }
 
         // 1. Pending overrides fire first.
         if (overrides.NextStop is { } nextStop && nowUtc >= nextStop)
@@ -154,6 +205,54 @@ public class FkhClusterSchedule
             _logger.LogWarning(ex, "Failed to parse '_admins.Uptime' setting. Scheduler disabled.");
             return null;
         }
+    }
+
+    private sealed record MaintenanceWindow(bool Weekly, DayOfWeek Day, TimeOnly StartTime, TimeSpan UtcOffset, TimeSpan Duration);
+
+    private MaintenanceWindow? ParseMaintenanceWindow(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return null;
+        try
+        {
+            var cfg = JsonSerializer.Deserialize<MaintenanceWindowConfig>(json)
+                ?? throw new FormatException("empty");
+            var weekly = string.Equals(cfg.Frequency, "Weekly", StringComparison.OrdinalIgnoreCase);
+            var day = weekly ? Enum.Parse<DayOfWeek>(cfg.DayOfWeek ?? "", ignoreCase: true) : DayOfWeek.Sunday;
+            var start = TimeOnly.ParseExact(cfg.StartTime ?? "", "HH:mm", CultureInfo.InvariantCulture);
+            var offsetText = cfg.UtcOffset ?? "+00:00";
+            var offset = TimeSpan.ParseExact(offsetText[1..], @"hh\:mm", CultureInfo.InvariantCulture);
+            if (offsetText[0] == '-')
+                offset = offset.Negate();
+            return new MaintenanceWindow(weekly, day, start, offset, TimeSpan.FromHours(cfg.Duration));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Invalid AKS_MAINTENANCE_WINDOW '{Value}'. Maintenance hold disabled.", json);
+            return null;
+        }
+    }
+
+    /// <summary>The maintenance hold (window start minus lead time .. window end) containing nowUtc, if any.</summary>
+    private (DateTimeOffset Start, DateTimeOffset End)? GetMaintenanceHold(DateTimeOffset nowUtc)
+    {
+        if (_maintenanceWindow is not { } w)
+            return null;
+
+        var localToday = DateOnly.FromDateTime(nowUtc.ToOffset(w.UtcOffset).DateTime);
+        for (var offset = -1; offset <= 1; offset++)
+        {
+            var date = localToday.AddDays(offset);
+            if (w.Weekly && date.DayOfWeek != w.Day)
+                continue;
+
+            var windowStart = new DateTimeOffset(date.ToDateTime(w.StartTime), w.UtcOffset);
+            var holdStart = windowStart - MaintenanceLeadTime;
+            var holdEnd = windowStart + w.Duration;
+            if (nowUtc >= holdStart && nowUtc < holdEnd)
+                return (holdStart.ToUniversalTime(), holdEnd.ToUniversalTime());
+        }
+        return null;
     }
 
     /// <summary>A single day's schedule edges (either may be absent for a one-directional rule).</summary>

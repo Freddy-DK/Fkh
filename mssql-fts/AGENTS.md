@@ -1,26 +1,27 @@
 # mssql-fts
 
-Minimal **Docker** image: Microsoft SQL Server 2022 with **Full-Text Search (FTS)** enabled. Used as the persisted database server for Business Central containers on AKS.
+Minimal **Docker** image: Microsoft SQL Server (2022 or 2025) with **Full-Text Search (FTS)** enabled. Used as the persisted database server for Business Central containers on AKS.
 
 ## Tech stack
 
 - **Docker**
-- Base: `mcr.microsoft.com/mssql/server:2022-latest`
-- Adds `mssql-server-fts` during image build
+- Base: `mcr.microsoft.com/mssql/server:<tag>`, selected by `sql_version` in tfvars (`2022`, `2025` or a specific tag such as `2025-CU9-ubuntu-24.04`)
+- Adds `mssql-server-fts` during image build from the repo matching the SQL major version and the base image's Ubuntu version (read from `/etc/os-release`)
 
-Single file: `Dockerfile`.
+Files: `Dockerfile` (parameterized via build args), `Build-MssqlImage.ps1` (resolves `sql_version`, builds, pushes).
 
 ## Build commands
 
-### CI (full stack deploy)
-
-From repo workflow after Terraform outputs ACR login server:
+### CI (full stack deploy) and `terraform/deploy.ps1`
 
 ```powershell
+$acrName = terraform output -raw acr_name
 $acrLoginServer = terraform output -raw acr_login_server
-docker build -t "$acrLoginServer/mssql-server-fts:2022-latest" ../mssql-fts
-docker push "$acrLoginServer/mssql-server-fts:2022-latest"
+az acr login --name $acrName
+../mssql-fts/Build-MssqlImage.ps1 -VarFile <tfvars> -AcrLoginServer $acrLoginServer
 ```
+
+The image is tagged with the base tag (e.g. `2022-latest`, `2025-CU9-ubuntu-24.04`). The SQL pod uses `image_pull_policy = "Always"`, so a rebuilt image is picked up on the next pod start (e.g. node image upgrade), not on deploy.
 
 ### Local
 
@@ -42,7 +43,7 @@ No automated tests. Verify SQL + FTS after deploy by creating a BC container tha
 ## Conventions
 
 - Keep the Dockerfile minimal — only add packages required for BC (FTS).
-- Tag remains `2022-latest` unless you coordinate a migration across Terraform and existing clusters.
+- Changing `sql_version` from 2022 to 2025 upgrades all databases on the persistent disk on first start and cannot be reverted.
 - Do not embed passwords in the Dockerfile; use K8s secrets from Terraform.
 
 ## Related

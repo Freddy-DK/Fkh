@@ -90,37 +90,6 @@ variable "kubernetes_version" {
   }
 }
 
-variable "aks_maintenance_window" {
-  description = "Weekly window in which AKS may apply Kubernetes patch upgrades and node OS image updates (nodes are drained, so running containers restart). duration is in hours (min 4)."
-  type = object({
-    day_of_week = optional(string, "Sunday")
-    start_time  = optional(string, "02:00")
-    duration    = optional(number, 4)
-    utc_offset  = optional(string, "+00:00")
-  })
-  default = {}
-
-  validation {
-    condition     = contains(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"], var.aks_maintenance_window.day_of_week)
-    error_message = "aks_maintenance_window.day_of_week must be a weekday name, e.g. 'Sunday'."
-  }
-
-  validation {
-    condition     = can(regex("^([01][0-9]|2[0-3]):[0-5][0-9]$", var.aks_maintenance_window.start_time))
-    error_message = "aks_maintenance_window.start_time must be in HH:mm format, e.g. '02:00'."
-  }
-
-  validation {
-    condition     = var.aks_maintenance_window.duration >= 4 && var.aks_maintenance_window.duration <= 24
-    error_message = "aks_maintenance_window.duration must be between 4 and 24 hours."
-  }
-
-  validation {
-    condition     = can(regex("^[+-][0-9]{2}:[0-9]{2}$", var.aks_maintenance_window.utc_offset))
-    error_message = "aks_maintenance_window.utc_offset must be in +HH:mm or -HH:mm format, e.g. '+01:00'."
-  }
-}
-
 variable "aks_sku_tier" {
   description = "AKS control plane tier. 'Free' for dev/test (no SLA). 'Standard' for production (99.95% SLA, ~$73/month)."
   type        = string
@@ -129,6 +98,49 @@ variable "aks_sku_tier" {
   validation {
     condition     = contains(["Free", "Standard", "Premium"], var.aks_sku_tier)
     error_message = "aks_sku_tier must be one of: Free, Standard, Premium."
+  }
+}
+
+variable "aks_maintenance_window" {
+  description = "Window in which AKS may apply Kubernetes patch upgrades and node OS image updates (nodes are drained, so running containers restart). The Fkh scheduler keeps the cluster running during it. duration is in hours (4-24). null = AKS upgrades at any time."
+  type = object({
+    frequency   = string
+    day_of_week = optional(string)
+    start_time  = string
+    utc_offset  = string
+    duration    = number
+  })
+  default = {
+    frequency   = "Weekly"
+    day_of_week = "Sunday"
+    start_time  = "01:00"
+    utc_offset  = "+01:00"
+    duration    = 4
+  }
+
+  validation {
+    condition     = try(contains(["Weekly", "Daily"], var.aks_maintenance_window.frequency), var.aks_maintenance_window == null)
+    error_message = "aks_maintenance_window.frequency must be Weekly or Daily."
+  }
+
+  validation {
+    condition     = try(var.aks_maintenance_window.frequency != "Weekly" || contains(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"], var.aks_maintenance_window.day_of_week == null ? "" : var.aks_maintenance_window.day_of_week), var.aks_maintenance_window == null)
+    error_message = "aks_maintenance_window.day_of_week must be Monday..Sunday when frequency is Weekly."
+  }
+
+  validation {
+    condition     = try(can(regex("^([01][0-9]|2[0-3]):[0-5][0-9]$", var.aks_maintenance_window.start_time)), var.aks_maintenance_window == null)
+    error_message = "aks_maintenance_window.start_time must be HH:mm."
+  }
+
+  validation {
+    condition     = try(can(regex("^[+-][0-9]{2}:[0-9]{2}$", var.aks_maintenance_window.utc_offset)), var.aks_maintenance_window == null)
+    error_message = "aks_maintenance_window.utc_offset must be +HH:mm or -HH:mm."
+  }
+
+  validation {
+    condition     = try(var.aks_maintenance_window.duration >= 4 && var.aks_maintenance_window.duration <= 24, var.aks_maintenance_window == null)
+    error_message = "aks_maintenance_window.duration must be between 4 and 24 hours."
   }
 }
 
@@ -255,6 +267,17 @@ variable "sql_memory_limit_mb" {
   description = "SQL Server max memory (buffer pool) in MB. Controls MSSQL_MEMORY_LIMIT_MB inside the container."
   type        = number
   default     = 10240
+}
+
+variable "sql_version" {
+  description = "SQL Server base image: 2022 or 2025 (uses <version>-latest), or a specific mcr.microsoft.com/mssql/server tag such as 2025-CU9-ubuntu-24.04. Upgrading 2022 -> 2025 is one-way."
+  type        = string
+  default     = "2022"
+
+  validation {
+    condition     = can(regex("^(2022|2025)(-.+)?$", var.sql_version))
+    error_message = "sql_version must be 2022, 2025 or a mcr.microsoft.com/mssql/server tag starting with 2022- or 2025-."
+  }
 }
 
 # ── GitHub ────────────────────────────────────────────────────────────────────

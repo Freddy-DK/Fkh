@@ -86,8 +86,9 @@ terraform fmt -check
 - **OIDC** federated credential for GitHub Actions deployment identity.
 - Function App **user-assigned managed identity** → AKS, ACR, storage, Graph (when configured).
 - Kubernetes provider targets the AKS cluster created in the same stack.
-- SQL Server runs in-cluster using image `mssql-server-fts:2022-latest` from ACR (built from [mssql-fts/](../mssql-fts/AGENTS.md)).
+- SQL Server runs in-cluster using image `mssql-server-fts:<sql_version tag>` from ACR (built from [mssql-fts/](../mssql-fts/AGENTS.md)) with `image_pull_policy = "Always"`, so new CUs are picked up on the next pod start.
 - BC containers use ACR repository `businesscentral`; orchestration env vars wired in `function.tf`.
+- Node OS image upgrades run in `aks_maintenance_window` (passed to the backend as `AKS_MAINTENANCE_WINDOW`); `FkhClusterSchedule` starts a stopped cluster 30 minutes before the window and stops it again afterwards.
 
 ## When changing infrastructure
 
