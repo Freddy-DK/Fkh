@@ -68,32 +68,32 @@ public class FkhClusterSchedule
             return;
         }
 
-        if (overrides.MaintenanceStopAt is not null)
+        // An upgrade (e.g. started in the maintenance window) may still be running — never stop mid-upgrade.
+        if (running)
         {
-            if (stopped)
-            {
-                overrides.MaintenanceStopAt = null;
-                await _clusterControl.SaveOverridesAsync(overrides);
-                return;
-            }
-
-            // An upgrade started in the window may still be running — wait until it reaches a terminal state.
             var provisioningState = await _clusterControl.GetProvisioningStateAsync();
             if (provisioningState is not null
                 && !new[] { "Succeeded", "Failed", "Canceled" }.Contains(provisioningState, StringComparer.OrdinalIgnoreCase))
                 return;
+        }
+
+        if (overrides.MaintenanceStopAt is not null)
+        {
+            if (running)
+            {
+                var uptime = await GetUptimeConfigAsync();
+                var desiredRunning = (overrides.NextStop is { } pendingStop && pendingStop > nowUtc)
+                    || (uptime?.Weekdays is { Count: > 0 }
+                        && await ComputeDesiredRunningAsync(uptime, ResolveTimeZone(uptime.TimeZone), nowUtc));
+                if (!desiredRunning)
+                {
+                    _logger.LogInformation("Schedule: stopping cluster after AKS maintenance window.");
+                    await _clusterControl.StopClusterForScheduleAsync();
+                }
+            }
 
             overrides.MaintenanceStopAt = null;
             await _clusterControl.SaveOverridesAsync(overrides);
-
-            var uptime = await GetUptimeConfigAsync();
-            var desiredRunning = uptime?.Weekdays is { Count: > 0 }
-                && await ComputeDesiredRunningAsync(uptime, ResolveTimeZone(uptime.TimeZone), nowUtc);
-            if (!desiredRunning)
-            {
-                _logger.LogInformation("Schedule: stopping cluster after AKS maintenance window.");
-                await _clusterControl.StopClusterForScheduleAsync();
-            }
             return;
         }
 
