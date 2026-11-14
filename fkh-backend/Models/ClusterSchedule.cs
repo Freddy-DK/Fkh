@@ -55,10 +55,9 @@ public sealed class ClusterScheduleOverrides
     public DateTimeOffset? MaintenanceStopAt { get; set; }
 }
 
-/// <summary>AKS node OS maintenance window, from the AKS_MAINTENANCE_WINDOW app setting (Terraform jsonencode).</summary>
+/// <summary>AKS weekly maintenance window, from the AKS_MAINTENANCE_WINDOW app setting (Terraform jsonencode).</summary>
 public sealed class MaintenanceWindowConfig
 {
-    [JsonPropertyName("frequency")] public string? Frequency { get; set; }
     [JsonPropertyName("day_of_week")] public string? DayOfWeek { get; set; }
     [JsonPropertyName("start_time")] public string? StartTime { get; set; }
     [JsonPropertyName("utc_offset")] public string? UtcOffset { get; set; }

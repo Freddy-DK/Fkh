@@ -86,14 +86,13 @@ windows_spot_max_node_count  = 10                 # Maximum spot nodes the autos
 # Windows Server 2022 nodes are supported up to 1.36.
 kubernetes_version = "1.35"
 
-# Maintenance window — weekly slot where AKS may apply Kubernetes patches and node OS image updates.
+# Maintenance window — weekly slot where AKS may apply Kubernetes patches; node OS image updates use the same slot.
 # Nodes are drained during updates, so running BC containers restart. duration is in hours (min 4).
 # A stopped cluster is never upgraded, so the Fkh scheduler starts the cluster 30 minutes before the
 # window and stops it again afterwards (unless the uptime schedule wants it running).
 # utc_offset is fixed (does not follow daylight saving time). Set to null to let AKS upgrade at any time.
 aks_maintenance_window = {
-  frequency   = "Weekly"   # Weekly | Daily
-  day_of_week = "Sunday"   # Monday..Sunday (Weekly only)
+  day_of_week = "Sunday"   # Monday..Sunday
   start_time  = "01:00"    # HH:mm
   utc_offset  = "+01:00"   # +HH:mm / -HH:mm
   duration    = 4          # hours (4-24)

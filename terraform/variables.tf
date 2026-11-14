@@ -102,16 +102,14 @@ variable "aks_sku_tier" {
 }
 
 variable "aks_maintenance_window" {
-  description = "Window in which AKS may apply Kubernetes patch upgrades and node OS image updates (nodes are drained, so running containers restart). The Fkh scheduler keeps the cluster running during it. duration is in hours (4-24). null = AKS upgrades at any time."
+  description = "Weekly window in which AKS may apply Kubernetes patch upgrades; node OS image updates use the same window (nodes are drained, so running containers restart). The Fkh scheduler keeps the cluster running during it. duration is in hours (4-24). null = AKS upgrades at any time."
   type = object({
-    frequency   = optional(string, "Weekly")
     day_of_week = optional(string, "Sunday")
     start_time  = optional(string, "01:00")
     utc_offset  = optional(string, "+01:00")
     duration    = optional(number, 4)
   })
   default = {
-    frequency   = "Weekly"
     day_of_week = "Sunday"
     start_time  = "01:00"
     utc_offset  = "+01:00"
@@ -119,13 +117,8 @@ variable "aks_maintenance_window" {
   }
 
   validation {
-    condition     = var.aks_maintenance_window == null ? true : contains(["Weekly", "Daily"], var.aks_maintenance_window.frequency)
-    error_message = "aks_maintenance_window.frequency must be Weekly or Daily."
-  }
-
-  validation {
-    condition     = var.aks_maintenance_window == null ? true : (var.aks_maintenance_window.frequency != "Weekly" || contains(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"], var.aks_maintenance_window.day_of_week))
-    error_message = "aks_maintenance_window.day_of_week must be Monday..Sunday when frequency is Weekly."
+    condition     = var.aks_maintenance_window == null ? true : contains(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"], var.aks_maintenance_window.day_of_week)
+    error_message = "aks_maintenance_window.day_of_week must be Monday..Sunday."
   }
 
   validation {

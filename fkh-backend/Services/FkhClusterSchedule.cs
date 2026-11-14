@@ -50,9 +50,10 @@ public class FkhClusterSchedule
         var overrides = await _clusterControl.GetOverridesAsync();
 
         // 0. AKS maintenance window: AKS skips node image upgrades on a stopped cluster, so keep it running.
-        //    Stops (scheduled or one-off) are deferred until the window has ended.
+        //    Starts still fire; stops (scheduled or one-off) are deferred until the window has ended.
         if (GetMaintenanceHold(nowUtc) is { } hold)
         {
+            var holdChanged = false;
             if (overrides.MaintenanceHandled != hold.Start)
             {
                 if (stopped)
@@ -61,10 +62,45 @@ public class FkhClusterSchedule
                     overrides.MaintenanceStopAt = hold.End;
                     await _clusterControl.SaveOverridesAsync(overrides);
                     await _clusterControl.StartClusterForScheduleAsync();
+                    stopped = false;
                 }
                 overrides.MaintenanceHandled = hold.Start;
-                await _clusterControl.SaveOverridesAsync(overrides);
+                holdChanged = true;
             }
+
+            // A start requested during the hold means the cluster should stay up afterwards.
+            if (overrides.NextStart is { } holdStart && nowUtc >= holdStart)
+            {
+                if (stopped)
+                {
+                    _logger.LogInformation("Schedule: firing one-off start (scheduled {StartAt} UTC).", holdStart);
+                    await _clusterControl.StartClusterForScheduleAsync("oneoff");
+                }
+                overrides.NextStart = null;
+                overrides.MaintenanceStopAt = null;
+                holdChanged = true;
+            }
+            else if (await GetUptimeConfigAsync() is { Weekdays.Count: > 0 } holdCfg)
+            {
+                var (holdRecentStart, holdRecentStop) = await MostRecentEdgesAsync(holdCfg, ResolveTimeZone(holdCfg.TimeZone), nowUtc);
+                if (holdRecentStart is { } edge && !(overrides.LastScheduleStart is { } hls && hls >= edge))
+                {
+                    if (holdRecentStop is null || edge >= holdRecentStop)
+                    {
+                        if (stopped && overrides.NextStart is null)
+                        {
+                            _logger.LogInformation("Schedule: starting cluster (start edge {Edge} UTC).", edge);
+                            await _clusterControl.StartClusterForScheduleAsync();
+                        }
+                        overrides.MaintenanceStopAt = null;
+                    }
+                    overrides.LastScheduleStart = edge;
+                    holdChanged = true;
+                }
+            }
+
+            if (holdChanged)
+                await _clusterControl.SaveOverridesAsync(overrides);
             return;
         }
 
@@ -208,7 +244,7 @@ public class FkhClusterSchedule
         }
     }
 
-    private sealed record MaintenanceWindow(bool Weekly, DayOfWeek Day, TimeOnly StartTime, TimeSpan UtcOffset, TimeSpan Duration);
+    private sealed record MaintenanceWindow(DayOfWeek Day, TimeOnly StartTime, TimeSpan UtcOffset, TimeSpan Duration);
 
     private MaintenanceWindow? ParseMaintenanceWindow(string? json)
     {
@@ -218,14 +254,13 @@ public class FkhClusterSchedule
         {
             var cfg = JsonSerializer.Deserialize<MaintenanceWindowConfig>(json)
                 ?? throw new FormatException("empty");
-            var weekly = string.Equals(cfg.Frequency, "Weekly", StringComparison.OrdinalIgnoreCase);
-            var day = weekly ? Enum.Parse<DayOfWeek>(cfg.DayOfWeek ?? "", ignoreCase: true) : DayOfWeek.Sunday;
+            var day = Enum.Parse<DayOfWeek>(cfg.DayOfWeek ?? "", ignoreCase: true);
             var start = TimeOnly.ParseExact(cfg.StartTime ?? "", "HH:mm", CultureInfo.InvariantCulture);
             var offsetText = cfg.UtcOffset ?? "+00:00";
             var offset = TimeSpan.ParseExact(offsetText[1..], @"hh\:mm", CultureInfo.InvariantCulture);
             if (offsetText[0] == '-')
                 offset = offset.Negate();
-            return new MaintenanceWindow(weekly, day, start, offset, TimeSpan.FromHours(cfg.Duration));
+            return new MaintenanceWindow(day, start, offset, TimeSpan.FromHours(cfg.Duration));
         }
         catch (Exception ex)
         {
@@ -244,7 +279,7 @@ public class FkhClusterSchedule
         for (var offset = -1; offset <= 1; offset++)
         {
             var date = localToday.AddDays(offset);
-            if (w.Weekly && date.DayOfWeek != w.Day)
+            if (date.DayOfWeek != w.Day)
                 continue;
 
             var windowStart = new DateTimeOffset(date.ToDateTime(w.StartTime), w.UtcOffset);
