@@ -58,8 +58,9 @@ public class FkhClusterSchedule
                 if (stopped)
                 {
                     _logger.LogInformation("Schedule: starting cluster for AKS maintenance window ({Start} - {End} UTC).", hold.Start, hold.End);
-                    await _clusterControl.StartClusterForScheduleAsync();
                     overrides.MaintenanceStopAt = hold.End;
+                    await _clusterControl.SaveOverridesAsync(overrides);
+                    await _clusterControl.StartClusterForScheduleAsync();
                 }
                 overrides.MaintenanceHandled = hold.Start;
                 await _clusterControl.SaveOverridesAsync(overrides);
