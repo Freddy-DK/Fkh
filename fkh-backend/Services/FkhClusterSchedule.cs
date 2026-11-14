@@ -76,6 +76,13 @@ public class FkhClusterSchedule
                     _logger.LogInformation("Schedule: firing one-off start (scheduled {StartAt} UTC).", holdStart);
                     await _clusterControl.StartClusterForScheduleAsync("oneoff");
                 }
+                if (await GetUptimeConfigAsync() is { Weekdays.Count: > 0 } oneOffCfg)
+                {
+                    var (_, deferredStop) = await MostRecentEdgesAsync(oneOffCfg, ResolveTimeZone(oneOffCfg.TimeZone), holdStart);
+                    if (deferredStop is { } stopBeforeStart && stopBeforeStart < holdStart
+                        && !(overrides.LastScheduleStop is { } lastStop && lastStop >= stopBeforeStart))
+                        overrides.LastScheduleStop = stopBeforeStart;
+                }
                 overrides.NextStart = null;
                 overrides.MaintenanceStopAt = null;
                 holdChanged = true;
