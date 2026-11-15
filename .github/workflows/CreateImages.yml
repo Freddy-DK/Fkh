@@ -96,18 +96,23 @@ jobs:
         env:
           ARTIFACT_URL: ${{ matrix.artifactUrl }}
         run: |
+          dotnet tool update algoctl --global --prerelease
           $ErrorActionPreference = "Stop"
           Install-Module -Name BcContainerHelper -Force
           Import-Module BcContainerHelper -disableNameChecking
           $artifactUrl = $env:ARTIFACT_URL
-          $baseImage = Get-BestGenericImageName
+          $baseImage = 'freddyk/businesscentral:ltsc2022-nosql'
           $labels = Get-BcContainerImageLabels $baseImage
-          $osversion = $labels.osversion
+          $osversion = 'ltsc2022'
           Write-Host "Downloading artifacts for: $artifactUrl"
           Write-Host "Using base image: $baseImage"
           $appUri = [Uri]::new($artifactUrl)
           $imageTag = "$($appUri.AbsolutePath.Replace('/','-').TrimStart('-'))".ToLowerInvariant()
-          $artifactPath = Download-Artifacts -artifactUrl $artifactUrl -includePlatform
+          algoctl downloadartifacts --artifactUrl $artifactUrl --includePlatform
+          $artifactPath = @(
+            "c:\bcartifacts.cache\$($artifactUrl.Split('/')[3])\$($artifactUrl.Split('/')[4])\$($artifactUrl.Split('/')[5])"
+            "c:\bcartifacts.cache\$($artifactUrl.Split('/')[3])\$($artifactUrl.Split('/')[4])\platform"
+          )
           $manifest = Get-Content -Path (Join-Path $artifactPath[0] "manifest.json") | ConvertFrom-Json
           $bakFile = Join-Path $artifactPath[0] $manifest.database
           if (!(Test-Path $bakFile)) {
@@ -162,6 +167,7 @@ jobs:
         env:
           DBS_STORAGE_ACCOUNT: ${{ env.DBS_STORAGE_ACCOUNT }}
         run: |
+          return # Skip the upload of app and tenant database backups for now
           $ErrorActionPreference = "Stop"
           $exists = $true
           foreach($dbname in @('app','tenant')) {
@@ -232,8 +238,6 @@ jobs:
           $ErrorActionPreference = "Stop"
           Import-Module BcContainerHelper -disableNameChecking
           New-BcImage -artifactUrl $env:ARTIFACT_URL -imageName $env:IMAGE_NAME -baseImage $env:BASE_IMAGE -multitenant:$false
-
-
           docker tag $env:IMAGE_NAME "$env:ACR_LOGIN_SERVER/businesscentral:$env:IMAGE_TAG"
           docker push "$env:ACR_LOGIN_SERVER/businesscentral:$env:IMAGE_TAG"
           docker tag $env:IMAGE_NAME "$env:ACR_LOGIN_SERVER/businesscentral-$($env:OS_VERSION):$env:IMAGE_TAG"

@@ -14,6 +14,9 @@ namespace Fkh.Services;
 
 public class FkhCreateContainer : FkhServiceBase
 {
+    private const string ArtifactCacheVolumeName = "bcartifacts-cache";
+    private const string ArtifactCacheHostPath = @"c:\bcartifacts.cache";
+
     private readonly GitHubAppTokenService _gitHubAppTokenService;
     private readonly FkhUserSettings _userSettings;
 
@@ -59,17 +62,23 @@ public class FkhCreateContainer : FkhServiceBase
         var openPorts = string.Join(",", ParseOpenPorts(openPortsSpec));
 
         var imageTag = GetImageTag(artifactUrl);
-        var fullImage = $"{AcrLoginServer}/{AcrRepository}:{imageTag}";
+        // TEST: always run the generic no-SQL image and let it install BC from the artifact URL at startup.
+        // To restore the prebuilt-image flow, use the ACR image and call EnsureImageExistsAsync again:
+        //   var fullImage = $"{AcrLoginServer}/{AcrRepository}:{imageTag}";
+        //   await EnsureImageExistsAsync(imageTag, fullImage, artifactUrl);
+        var fullImage = "freddyk/businesscentral:ltsc2022-nosql";
         var appName = ResolveNewAppName(parameters);
         var databaseName = appName;
 
         if (!Regex.IsMatch(databaseName, @"^[a-zA-Z0-9_-]+$"))
             throw new ArgumentException("Name contains invalid characters. Only letters, digits, hyphens, and underscores are allowed.");
 
-        Logger.LogInformation("Checking ACR for image {Image}", fullImage);
-        await EnsureImageExistsAsync(imageTag, fullImage, artifactUrl);
+// TEST
+//        Logger.LogInformation("Checking ACR for image {Image}", fullImage);
+//        await EnsureImageExistsAsync(imageTag, fullImage, artifactUrl);
+//        Logger.LogInformation("Image found. Ensuring a Windows node is ready...");
 
-        Logger.LogInformation("Image found. Ensuring a Windows node is ready...");
+        Logger.LogInformation("Using image {Image} with artifactUrl {ArtifactUrl}. Ensuring a Windows node is ready...", fullImage, artifactUrl);
         var client = await GetKubernetesClientAsync();
 
         // ── Enforce MaxContainers limit ──────────────────────────────────────
@@ -121,7 +130,7 @@ public class FkhCreateContainer : FkhServiceBase
             }
             else if (!string.IsNullOrWhiteSpace(tenantDatabase))
             {
-                appSasUrl = await GetDatabaseBackupSasUrlAsync(imageTag);
+                appSasUrl = await GetDatabaseBackupSasUrlAsync(imageTag, "-app");
                 tenantSasUrl = await ResolveUseDatabaseAsync(tenantDatabase);
             }
             else
@@ -167,7 +176,7 @@ public class FkhCreateContainer : FkhServiceBase
             (aadAppObjectId, aadAppClientId) = await CreateAadAppRegistrationAsync(appName, redirectUri, aadAuthIsMultitenant);
         }
 
-        await CreateDeploymentAsync(client, deploymentName, appName, fullImage, adminUsername, secretName, publicDnsName, databaseName, cpuRequest, memoryRequest, repo, project, multitenant, useSpot, licenseFileUrl, authenticationEmail, aadAppClientId, aadAppObjectId, aadAuthIsMultitenant, moveAllAppsToDevScope, openPorts);
+        await CreateDeploymentAsync(client, deploymentName, appName, fullImage, adminUsername, secretName, publicDnsName, databaseName, cpuRequest, memoryRequest, repo, project, multitenant, useSpot, licenseFileUrl, authenticationEmail, aadAppClientId, aadAppObjectId, aadAuthIsMultitenant, moveAllAppsToDevScope, openPorts, artifactUrl);
         await EnsureContainerLoadBalancerServiceAsync(client, appName, openPorts);
 
         // Set auto-stop annotation if requested
@@ -263,6 +272,13 @@ public class FkhCreateContainer : FkhServiceBase
         var containerClient = blobServiceClient.GetBlobContainerClient("cronus");
         var blobName = imageTag + suffix;
         var blobClient = containerClient.GetBlobClient(blobName);
+
+        if (!string.IsNullOrEmpty(suffix) && !await blobClient.ExistsAsync())
+        {
+            Logger.LogInformation("Database backup blob '{BlobName}' not found; falling back to '{FallbackBlobName}'.", blobName, imageTag);
+            blobName = imageTag;
+            blobClient = containerClient.GetBlobClient(blobName);
+        }
 
         if (!await blobClient.ExistsAsync())
         {
@@ -375,7 +391,7 @@ public class FkhCreateContainer : FkhServiceBase
     private async Task CreateDeploymentAsync(
         Kubernetes client, string deploymentName, string appName, string fullImage,
         string adminUsername, string secretName, string publicDnsName, string databaseName,
-        string cpuRequest, string memoryRequest, string? repo, string? project, bool multitenant, bool useSpot, string? licenseFileUrl, string? authenticationEmail, string? aadAppClientId, string? aadAppObjectId, bool aadAuthIsMultitenant, bool moveAllAppsToDevScope, string? openPorts)
+        string cpuRequest, string memoryRequest, string? repo, string? project, bool multitenant, bool useSpot, string? licenseFileUrl, string? authenticationEmail, string? aadAppClientId, string? aadAppObjectId, bool aadAuthIsMultitenant, bool moveAllAppsToDevScope, string? openPorts, string? artifactUrl)
     {
         var annotations = new Dictionary<string, string>();
         if (!string.IsNullOrWhiteSpace(repo))
@@ -481,7 +497,11 @@ public class FkhCreateContainer : FkhServiceBase
                                 {
                                     new() { ContainerPort = 80 }, new() { ContainerPort = 443 }, new() { ContainerPort = 7047 }, new() { ContainerPort = 7048 }, new() { ContainerPort = 7049 },
                                 },
-                                Env = BuildEnvVars(adminUsername, secretName, publicDnsName, databaseName, multitenant, licenseFileUrl, authenticationEmail, aadAppClientId, aadAuthIsMultitenant, await GenerateContainerBlobSasUrlAsync(appName)),
+                                Env = BuildEnvVars(adminUsername, secretName, publicDnsName, databaseName, multitenant, licenseFileUrl, authenticationEmail, aadAppClientId, aadAuthIsMultitenant, await GenerateContainerBlobSasUrlAsync(appName), artifactUrl),
+                                VolumeMounts = new List<V1VolumeMount>
+                                {
+                                    new() { Name = ArtifactCacheVolumeName, MountPath = @"c:\dl" }
+                                },
                                 Resources = new V1ResourceRequirements
                                 {
                                     Requests = new Dictionary<string, ResourceQuantity>
@@ -490,6 +510,15 @@ public class FkhCreateContainer : FkhServiceBase
                                         ["memory"] = new ResourceQuantity(memoryRequest)
                                     }
                                 }
+                            }
+                        },
+                        // Node-local BC artifact cache, shared by all containers on the same Windows node.
+                        Volumes = new List<V1Volume>
+                        {
+                            new()
+                            {
+                                Name = ArtifactCacheVolumeName,
+                                HostPath = new V1HostPathVolumeSource { Path = ArtifactCacheHostPath, Type = "DirectoryOrCreate" }
                             }
                         }
                     }
@@ -500,7 +529,7 @@ public class FkhCreateContainer : FkhServiceBase
         await client.CreateNamespacedDeploymentAsync(deployment, Namespace);
     }
 
-    private List<V1EnvVar> BuildEnvVars(string adminUsername, string secretName, string publicDnsName, string databaseName, bool multitenant, string? licenseFileUrl, string? authenticationEmail, string? aadAppClientId, bool aadAuthIsMultitenant, string encryptionKeyBlobSasUrl)
+    private List<V1EnvVar> BuildEnvVars(string adminUsername, string secretName, string publicDnsName, string databaseName, bool multitenant, string? licenseFileUrl, string? authenticationEmail, string? aadAppClientId, bool aadAuthIsMultitenant, string encryptionKeyBlobSasUrl, string? artifactUrl)
     {
         var envVars = new List<V1EnvVar>
         {
@@ -549,6 +578,11 @@ public class FkhCreateContainer : FkhServiceBase
             },
             new() { Name = "ContainerBlobContainer", Value = encryptionKeyBlobSasUrl },
         };
+
+        if (!string.IsNullOrWhiteSpace(artifactUrl))
+        {
+            envVars.Add(new V1EnvVar { Name = "artifactUrl", Value = artifactUrl });
+        }
 
         if (!string.IsNullOrWhiteSpace(licenseFileUrl))
         {

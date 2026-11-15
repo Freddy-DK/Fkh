@@ -53,7 +53,7 @@ provider "azuread" {
 }
 
 locals {
-  product_prefix              = "fkh"
+  product_prefix         = "fkh"
   storage_account_org_id = substr(replace(var.fkhDeploymentName, "-", ""), 0, 14)
 
   resource_group_name    = "${local.product_prefix}-${var.fkhDeploymentName}"
@@ -81,7 +81,7 @@ resource "azurerm_resource_group" "this" {
   location = var.location
 
   tags = {
-    deployment = var.fkhDeploymentName
+    deployment  = var.fkhDeploymentName
     environment = "prod"
     managed_by  = "terraform"
   }
@@ -92,43 +92,49 @@ resource "azurerm_resource_group" "this" {
 # ============================================================================
 
 resource "azurerm_kubernetes_cluster" "this" {
-  name                = local.aks_cluster_name
-  location            = azurerm_resource_group.this.location
-  resource_group_name = azurerm_resource_group.this.name
-  dns_prefix          = local.aks_dns_prefix
-  sku_tier            = var.aks_sku_tier
+  name                  = local.aks_cluster_name
+  location              = azurerm_resource_group.this.location
+  resource_group_name   = azurerm_resource_group.this.name
+  dns_prefix            = local.aks_dns_prefix
+  sku_tier              = var.aks_sku_tier
   cost_analysis_enabled = var.aks_sku_tier != "Free"
-  oidc_issuer_enabled = true
+  oidc_issuer_enabled   = true
 
   kubernetes_version        = var.kubernetes_version
   automatic_upgrade_channel = "patch"
   node_os_upgrade_channel   = "NodeImage"
 
-  maintenance_window_auto_upgrade {
-    frequency   = "Weekly"
-    interval    = 1
-    day_of_week = var.aks_maintenance_window.day_of_week
-    start_time  = var.aks_maintenance_window.start_time
-    duration    = var.aks_maintenance_window.duration
-    utc_offset  = var.aks_maintenance_window.utc_offset
+  dynamic "maintenance_window_auto_upgrade" {
+    for_each = var.aks_maintenance_window == null ? [] : [var.aks_maintenance_window]
+    content {
+      frequency   = "Weekly"
+      interval    = 1
+      day_of_week = maintenance_window_auto_upgrade.value.day_of_week
+      start_time  = maintenance_window_auto_upgrade.value.start_time
+      utc_offset  = maintenance_window_auto_upgrade.value.utc_offset
+      duration    = maintenance_window_auto_upgrade.value.duration
+    }
   }
 
-  maintenance_window_node_os {
-    frequency   = "Weekly"
-    interval    = 1
-    day_of_week = var.aks_maintenance_window.day_of_week
-    start_time  = var.aks_maintenance_window.start_time
-    duration    = var.aks_maintenance_window.duration
-    utc_offset  = var.aks_maintenance_window.utc_offset
+  dynamic "maintenance_window_node_os" {
+    for_each = var.aks_maintenance_window == null ? [] : [var.aks_maintenance_window]
+    content {
+      frequency   = "Weekly"
+      interval    = 1
+      day_of_week = maintenance_window_node_os.value.day_of_week
+      start_time  = maintenance_window_node_os.value.start_time
+      utc_offset  = maintenance_window_node_os.value.utc_offset
+      duration    = maintenance_window_node_os.value.duration
+    }
   }
 
   default_node_pool {
-    name                         = "linuxpool"
-    node_count                   = 1
-    vm_size                      = var.linux_vm_size
-    os_sku                       = "Ubuntu"
-    orchestrator_version         = var.kubernetes_version
-    temporary_name_for_rotation  = "linuxtmp"
+    name                        = "linuxpool"
+    node_count                  = 1
+    vm_size                     = var.linux_vm_size
+    os_sku                      = "Ubuntu"
+    orchestrator_version        = var.kubernetes_version
+    temporary_name_for_rotation = "linuxtmp"
 
     upgrade_settings {
       max_surge                = "10%"
@@ -162,16 +168,16 @@ resource "azurerm_kubernetes_cluster" "this" {
 # ============================================================================
 
 resource "azurerm_kubernetes_cluster_node_pool" "win" {
-  name                         = "win"
-  kubernetes_cluster_id        = azurerm_kubernetes_cluster.this.id
-  vm_size                      = var.windows_vm_size
-  os_type                      = "Windows"
-  os_sku                       = "Windows2022"
-  orchestrator_version         = var.kubernetes_version
-  temporary_name_for_rotation  = "wintmp"
-  min_count                    = var.windows_min_node_count
-  max_count                    = var.windows_max_node_count
-  auto_scaling_enabled         = true
+  name                        = "win"
+  kubernetes_cluster_id       = azurerm_kubernetes_cluster.this.id
+  vm_size                     = var.windows_vm_size
+  os_type                     = "Windows"
+  os_sku                      = "Windows2022"
+  orchestrator_version        = var.kubernetes_version
+  temporary_name_for_rotation = "wintmp"
+  min_count                   = var.windows_min_node_count
+  max_count                   = var.windows_max_node_count
+  auto_scaling_enabled        = true
 
   upgrade_settings {
     max_surge                = "10%"
@@ -193,20 +199,20 @@ resource "azurerm_kubernetes_cluster_node_pool" "win" {
 # ============================================================================
 
 resource "azurerm_kubernetes_cluster_node_pool" "winspot" {
-  count                        = var.windows_spot_enabled ? 1 : 0
-  name                         = "spot"
-  kubernetes_cluster_id        = azurerm_kubernetes_cluster.this.id
-  vm_size                      = var.windows_spot_vm_size
-  os_type                      = "Windows"
-  os_sku                       = "Windows2022"
-  orchestrator_version         = var.kubernetes_version
-  temporary_name_for_rotation  = "spottmp"
-  min_count             = var.windows_spot_min_node_count
-  max_count             = var.windows_spot_max_node_count
-  auto_scaling_enabled  = true
-  priority              = "Spot"
-  eviction_policy       = "Delete"
-  spot_max_price        = -1  # pay up to on-demand price
+  count                       = var.windows_spot_enabled ? 1 : 0
+  name                        = "spot"
+  kubernetes_cluster_id       = azurerm_kubernetes_cluster.this.id
+  vm_size                     = var.windows_spot_vm_size
+  os_type                     = "Windows"
+  os_sku                      = "Windows2022"
+  orchestrator_version        = var.kubernetes_version
+  temporary_name_for_rotation = "spottmp"
+  min_count                   = var.windows_spot_min_node_count
+  max_count                   = var.windows_spot_max_node_count
+  auto_scaling_enabled        = true
+  priority                    = "Spot"
+  eviction_policy             = "Delete"
+  spot_max_price              = -1 # pay up to on-demand price
 
   upgrade_settings {
     drain_timeout_in_minutes = 30

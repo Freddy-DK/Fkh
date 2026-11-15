@@ -118,6 +118,10 @@ resource "kubernetes_persistent_volume_claim" "mssql_data" {
 # SQL Server Deployment on Linux
 # ============================================================================
 
+locals {
+  mssql_image = "${azurerm_container_registry.this.login_server}/mssql-server-fts:${strcontains(var.sql_version, "-") ? var.sql_version : "${var.sql_version}-latest"}"
+}
+
 resource "kubernetes_deployment" "mssql" {
   metadata {
     name      = "mssql-deployment"
@@ -162,8 +166,9 @@ resource "kubernetes_deployment" "mssql" {
 
         # Init container to fix permissions on mounted volumes
         init_container {
-          name  = "fix-permissions"
-          image = "${azurerm_container_registry.this.login_server}/mssql-server-fts:2022-latest"
+          name              = "fix-permissions"
+          image             = local.mssql_image
+          image_pull_policy = "Always"
 
           command = ["/bin/bash", "-c", "chown -R 10001:0 /var/opt/mssql/data /var/opt/mssql/log"]
 
@@ -185,8 +190,9 @@ resource "kubernetes_deployment" "mssql" {
         }
 
         container {
-          name  = "mssql"
-          image = "${azurerm_container_registry.this.login_server}/mssql-server-fts:2022-latest"
+          name              = "mssql"
+          image             = local.mssql_image
+          image_pull_policy = "Always"
 
           port {
             container_port = 1433

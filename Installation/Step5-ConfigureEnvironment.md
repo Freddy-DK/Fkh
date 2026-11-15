@@ -110,9 +110,12 @@ The spot pool, overprovision, and prepull settings are optional optimizations. L
 ```hcl
 namespace        = "app"
 sql_storage_size = "128Gi"
+sql_version      = "2022"
 ```
 
 Keep these defaults unless you have a specific reason to change them.
+
+`sql_version` can be `"2022"`, `"2025"` (each uses the latest CU), or a specific SQL Server image tag starting with `2022-` or `2025-`, such as `"2025-CU9-ubuntu-24.04"`. Upgrading from 2022 to 2025 converts all databases on the persistent disk and cannot be undone.
 
 The SQL Server SA password is not stored in this file. You will create it as a GitHub Secret later in this step.
 
