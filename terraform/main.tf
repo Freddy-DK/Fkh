@@ -178,6 +178,11 @@ resource "azurerm_kubernetes_cluster_node_pool" "win" {
     drain_timeout_in_minutes = 30
   }
 
+  # Matches the AKS default; omitting it forces node pool replacement on every apply.
+  windows_profile {
+    outbound_nat_enabled = true
+  }
+
   lifecycle {
     ignore_changes = [node_count]
   }
@@ -205,6 +210,11 @@ resource "azurerm_kubernetes_cluster_node_pool" "winspot" {
 
   upgrade_settings {
     drain_timeout_in_minutes = 30
+  }
+
+  # Matches the AKS default; omitting it forces node pool replacement on every apply.
+  windows_profile {
+    outbound_nat_enabled = true
   }
 
   node_labels = {
