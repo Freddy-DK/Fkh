@@ -80,6 +80,7 @@ internal static class E2ERegistry
         ["MountTenant"] = E2ETier.Extensive,
         ["ConvertToSingleTenant"] = E2ETier.Extensive,
         ["SetSecret"] = E2ETier.Extensive,
+        ["cleanupFkh"] = E2ETier.Extensive,
     };
 }
 

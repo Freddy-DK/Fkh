@@ -875,10 +875,15 @@ static void FormatElement(StringBuilder sb, JsonElement element, int indent)
                             FormatElement(sb, item, indent + 1);
                         }
                     }
+                    else if (arr.GetArrayLength() == 1)
+                    {
+                        sb.AppendLine($"{prefix}{Ansi.Cyan}{label}:{Ansi.Reset} {first}");
+                    }
                     else
                     {
-                        var values = string.Join(", ", arr.EnumerateArray().Select(v => v.ToString()));
-                        sb.AppendLine($"{prefix}{Ansi.Cyan}{label}:{Ansi.Reset} {values}");
+                        sb.AppendLine($"{prefix}{Ansi.Cyan}{label}:{Ansi.Reset}");
+                        foreach (var item in arr.EnumerateArray())
+                            sb.AppendLine($"{prefix}  - {item}");
                     }
                 }
                 else if (prop.Value.ValueKind == JsonValueKind.Null)

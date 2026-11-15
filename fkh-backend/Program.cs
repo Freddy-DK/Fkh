@@ -21,6 +21,7 @@ var host = new HostBuilder()
         services.AddSingleton<FkhListContainers>();
         services.AddSingleton<FkhCreateContainer>();
         services.AddSingleton<FkhRemoveContainer>();
+        services.AddSingleton<FkhCleanupFkh>();
         services.AddSingleton<FkhScaleContainer>();
         services.AddSingleton<FkhGetContainerLog>();
         services.AddSingleton<FkhGetContainerEventLog>();

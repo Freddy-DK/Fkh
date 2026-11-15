@@ -259,7 +259,7 @@ public class FkhStatus : FkhServiceBase
                 try
                 {
                     var result = await ExecInMssqlPodAsync(client, mssqlPod.Metadata.Name,
-                        "df -h /var/opt/mssql 2>/dev/null | tail -1 | awk '{print \"used: \" $3 \" / \" $2 \" (\" $5 \" full)\"}'");
+                        "df -h /var/opt/mssql/data 2>/dev/null | tail -1 | awk '{print \"used: \" $3 \" / \" $2 \" (\" $5 \" full)\"}'");
                     sqlDiskUsage = result.Stdout.Trim();
                     if (string.IsNullOrWhiteSpace(sqlDiskUsage)) sqlDiskUsage = null;
                 }
