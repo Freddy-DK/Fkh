@@ -121,7 +121,7 @@ public class FkhCreateContainer : FkhServiceBase
             }
             else if (!string.IsNullOrWhiteSpace(tenantDatabase))
             {
-                appSasUrl = await GetDatabaseBackupSasUrlAsync(imageTag);
+                appSasUrl = await GetDatabaseBackupSasUrlAsync(imageTag, "-app");
                 tenantSasUrl = await ResolveUseDatabaseAsync(tenantDatabase);
             }
             else
@@ -263,6 +263,13 @@ public class FkhCreateContainer : FkhServiceBase
         var containerClient = blobServiceClient.GetBlobContainerClient("cronus");
         var blobName = imageTag + suffix;
         var blobClient = containerClient.GetBlobClient(blobName);
+
+        if (!string.IsNullOrEmpty(suffix) && !await blobClient.ExistsAsync())
+        {
+            Logger.LogInformation("Database backup blob '{BlobName}' not found; falling back to '{FallbackBlobName}'.", blobName, imageTag);
+            blobName = imageTag;
+            blobClient = containerClient.GetBlobClient(blobName);
+        }
 
         if (!await blobClient.ExistsAsync())
         {
