@@ -167,6 +167,7 @@ jobs:
         env:
           DBS_STORAGE_ACCOUNT: ${{ env.DBS_STORAGE_ACCOUNT }}
         run: |
+          return # Skip the upload of app and tenant database backups for now
           $ErrorActionPreference = "Stop"
           $exists = $true
           foreach($dbname in @('app','tenant')) {
