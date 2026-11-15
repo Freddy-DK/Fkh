@@ -14,6 +14,9 @@ namespace Fkh.Services;
 
 public class FkhCreateContainer : FkhServiceBase
 {
+    private const string ArtifactCacheVolumeName = "bcartifacts-cache";
+    private const string ArtifactCacheHostPath = @"c:\bcartifacts.cache";
+
     private readonly GitHubAppTokenService _gitHubAppTokenService;
     private readonly FkhUserSettings _userSettings;
 
@@ -495,6 +498,10 @@ public class FkhCreateContainer : FkhServiceBase
                                     new() { ContainerPort = 80 }, new() { ContainerPort = 443 }, new() { ContainerPort = 7047 }, new() { ContainerPort = 7048 }, new() { ContainerPort = 7049 },
                                 },
                                 Env = BuildEnvVars(adminUsername, secretName, publicDnsName, databaseName, multitenant, licenseFileUrl, authenticationEmail, aadAppClientId, aadAuthIsMultitenant, await GenerateContainerBlobSasUrlAsync(appName), artifactUrl),
+                                VolumeMounts = new List<V1VolumeMount>
+                                {
+                                    new() { Name = ArtifactCacheVolumeName, MountPath = @"c:\dl" }
+                                },
                                 Resources = new V1ResourceRequirements
                                 {
                                     Requests = new Dictionary<string, ResourceQuantity>
@@ -503,6 +510,15 @@ public class FkhCreateContainer : FkhServiceBase
                                         ["memory"] = new ResourceQuantity(memoryRequest)
                                     }
                                 }
+                            }
+                        },
+                        // Node-local BC artifact cache, shared by all containers on the same Windows node.
+                        Volumes = new List<V1Volume>
+                        {
+                            new()
+                            {
+                                Name = ArtifactCacheVolumeName,
+                                HostPath = new V1HostPathVolumeSource { Path = ArtifactCacheHostPath, Type = "DirectoryOrCreate" }
                             }
                         }
                     }
