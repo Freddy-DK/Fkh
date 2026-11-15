@@ -103,7 +103,7 @@ jobs:
           $artifactUrl = $env:ARTIFACT_URL
           $baseImage = 'freddyk/businesscentral:ltsc2022-nosql'
           $labels = Get-BcContainerImageLabels $baseImage
-          $osversion = $labels.osversion
+          $osversion = 'ltsc2022'
           Write-Host "Downloading artifacts for: $artifactUrl"
           Write-Host "Using base image: $baseImage"
           $appUri = [Uri]::new($artifactUrl)
