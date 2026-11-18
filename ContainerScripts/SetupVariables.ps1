@@ -19,6 +19,9 @@ if ($containerSasUrl) {
         if ($_.Exception.Response.StatusCode.value__ -eq 404) {
             Write-Host "No encryption key found in blob storage (first run)."
         }
+        elseif ($_.Exception.Response.StatusCode.value__ -eq 403) {
+            throw "Download of the encryption key was denied: (403) Forbidden. The ContainerBlobContainer SAS has probably expired; StartContainer renews it."
+        }
         else {
             throw
         }

@@ -20,6 +20,9 @@
 
 # Remove a container (deletes deployment, service, secret, and database)
 .\fkh.exe removecontainer --name bcserver
+
+# Run the tests of an installed test app (NavUserPassword and AAD containers; JUnit output)
+.\fkh.exe runtests --name bcserver --extensionId '<test app id>'
 ```
 
 ## Setup (for kubectl commands)

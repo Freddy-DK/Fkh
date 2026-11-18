@@ -468,11 +468,19 @@ public abstract class FkhServiceBase
 
     protected const string ContainerFilesBlobContainer = "containerfiles";
 
+    protected const string ContainerBlobSasEnvName = "ContainerBlobContainer";
+    protected const string ContainerBlobSasSecretKey = "containerBlobSasUrl";
+    protected const string ContainerBlobSasExpiresAnnotation = "fkh/blob-sas-expires-at";
+
+    // A user delegation key, and so the SAS signed with it, is capped at 7 days; the hour absorbs clock skew.
+    internal static readonly TimeSpan ContainerBlobSasLifetime = TimeSpan.FromDays(7) - TimeSpan.FromHours(1);
+    internal static readonly TimeSpan ContainerBlobSasRenewalInterval = TimeSpan.FromDays(1);
+
     /// <summary>
     /// Generates a container-level SAS URL scoped to the {appName}/ prefix within the 'containerfiles' blob container.
     /// Creates the blob container if it doesn't exist. Grants Read, Create, and Write permissions.
     /// </summary>
-    protected async Task<string> GenerateContainerBlobSasUrlAsync(string appName)
+    protected async Task<string> GenerateContainerBlobSasUrlAsync(string appName, DateTimeOffset expiresOn)
     {
 #pragma warning disable CS0618
         var credential = new ManagedIdentityCredential(ClientId);
@@ -484,13 +492,13 @@ public abstract class FkhServiceBase
         await blobContainerClient.CreateIfNotExistsAsync();
 
         var delegationKey = await blobServiceClient.GetUserDelegationKeyAsync(
-            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(24));
+            DateTimeOffset.UtcNow, expiresOn);
 
         var sasBuilder = new BlobSasBuilder
         {
             BlobContainerName = ContainerFilesBlobContainer,
             Resource = "c",
-            ExpiresOn = DateTimeOffset.UtcNow.AddHours(24)
+            ExpiresOn = expiresOn
         };
         sasBuilder.SetPermissions(BlobSasPermissions.Read | BlobSasPermissions.Create | BlobSasPermissions.Write);
 
@@ -501,6 +509,78 @@ public abstract class FkhServiceBase
         };
         // Return the URL including the appName prefix so scripts can access blobs directly under it
         return $"{blobUriBuilder.ToUri().ToString().Split('?')[0]}/{appName}?{blobUriBuilder.ToUri().Query.TrimStart('?')}";
+    }
+
+    /// <summary>
+    /// Writes a fresh container blob SAS into the container's secret. Pods resolve the secret when they
+    /// start, so a pod Kubernetes recreates later (node restart, cluster start) gets a valid SAS
+    /// without the running pod being restarted now.
+    /// </summary>
+    protected async Task<DateTimeOffset> RenewContainerBlobSasAsync(Kubernetes client, string appName)
+    {
+        var expiresOn = DateTimeOffset.UtcNow + ContainerBlobSasLifetime;
+        var sasUrl = await GenerateContainerBlobSasUrlAsync(appName, expiresOn);
+
+        var secretName = $"{appName}-secret";
+        var secret = await client.ReadNamespacedSecretAsync(secretName, Namespace);
+        secret.Data ??= new Dictionary<string, byte[]>();
+        secret.Data[ContainerBlobSasSecretKey] = Encoding.UTF8.GetBytes(sasUrl);
+        secret.Metadata.Annotations ??= new Dictionary<string, string>();
+        secret.Metadata.Annotations[ContainerBlobSasExpiresAnnotation] = expiresOn.ToString("o", CultureInfo.InvariantCulture);
+        await client.ReplaceNamespacedSecretAsync(secret, secretName, Namespace);
+        return expiresOn;
+    }
+
+    protected static V1EnvVar CreateContainerBlobSasEnvVar(string secretName) => new()
+    {
+        Name = ContainerBlobSasEnvName,
+        ValueFrom = new V1EnvVarSource
+        {
+            SecretKeyRef = new V1SecretKeySelector { Name = secretName, Key = ContainerBlobSasSecretKey }
+        }
+    };
+
+    internal static DateTimeOffset? GetContainerBlobSasExpiry(V1Secret secret) =>
+        secret.Metadata?.Annotations != null
+        && secret.Metadata.Annotations.TryGetValue(ContainerBlobSasExpiresAnnotation, out var value)
+        && DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var expiresOn)
+            ? expiresOn
+            : null;
+
+    internal static bool ContainerBlobSasNeedsRenewal(DateTimeOffset? expiresOn, DateTimeOffset now) =>
+        expiresOn is null || expiresOn.Value - now < ContainerBlobSasLifetime - ContainerBlobSasRenewalInterval;
+
+    /// <summary>
+    /// Renews the container blob SAS and redeploys the pod with it. Also moves deployments created
+    /// before the SAS lived in the secret from the literal env value to the secret reference.
+    /// </summary>
+    protected async Task RenewContainerBlobSasAndRedeployAsync(Kubernetes client, string appName, string deploymentName,
+        IDictionary<string, string>? deploymentAnnotations = null)
+    {
+        await RenewContainerBlobSasAsync(client, appName);
+
+        var deployment = await client.ReadNamespacedDeploymentAsync(deploymentName, Namespace);
+        var container = deployment.Spec.Template.Spec.Containers[0];
+        container.Env ??= new List<V1EnvVar>();
+        var envVar = CreateContainerBlobSasEnvVar($"{appName}-secret");
+        var index = container.Env.ToList().FindIndex(e => e.Name == ContainerBlobSasEnvName);
+        if (index >= 0)
+            container.Env[index] = envVar;
+        else
+            container.Env.Add(envVar);
+
+        // Unchanged env would not roll the pod; this is what 'kubectl rollout restart' sets.
+        deployment.Spec.Template.Metadata.Annotations ??= new Dictionary<string, string>();
+        deployment.Spec.Template.Metadata.Annotations["kubectl.kubernetes.io/restartedAt"] = DateTimeOffset.UtcNow.ToString("o", CultureInfo.InvariantCulture);
+
+        if (deploymentAnnotations != null)
+        {
+            deployment.Metadata.Annotations ??= new Dictionary<string, string>();
+            foreach (var (key, value) in deploymentAnnotations)
+                deployment.Metadata.Annotations[key] = value;
+        }
+
+        await client.ReplaceNamespacedDeploymentAsync(deployment, deploymentName, Namespace);
     }
 
     protected const string AutoStopAnnotation = "fkh/auto-stop-at";

@@ -28,6 +28,7 @@
     <PackageReference Include="Microsoft.Graph" Version="6.2.0" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Fkh.Contract.Tests" />
     <InternalsVisibleTo Include="Fkh.Backend.UnitTests" />
   </ItemGroup>
   <ItemGroup>

@@ -154,6 +154,7 @@ public class FkhCreateContainer : FkhServiceBase
 
         // ── Create Kubernetes resources ──────────────────────────────────────
         await CreateAdminSecretAsync(client, secretName, adminPassword);
+        await RenewContainerBlobSasAsync(client, appName);
 
         var dnsLabel = appName;
         var publicDnsName = $"{dnsLabel}.{AksLocation}.cloudapp.azure.com";
@@ -481,7 +482,7 @@ public class FkhCreateContainer : FkhServiceBase
                                 {
                                     new() { ContainerPort = 80 }, new() { ContainerPort = 443 }, new() { ContainerPort = 7047 }, new() { ContainerPort = 7048 }, new() { ContainerPort = 7049 },
                                 },
-                                Env = BuildEnvVars(adminUsername, secretName, publicDnsName, databaseName, multitenant, licenseFileUrl, authenticationEmail, aadAppClientId, aadAuthIsMultitenant, await GenerateContainerBlobSasUrlAsync(appName)),
+                                Env = BuildEnvVars(adminUsername, secretName, publicDnsName, databaseName, multitenant, licenseFileUrl, authenticationEmail, aadAppClientId, aadAuthIsMultitenant),
                                 Resources = new V1ResourceRequirements
                                 {
                                     Requests = new Dictionary<string, ResourceQuantity>
@@ -500,7 +501,7 @@ public class FkhCreateContainer : FkhServiceBase
         await client.CreateNamespacedDeploymentAsync(deployment, Namespace);
     }
 
-    private List<V1EnvVar> BuildEnvVars(string adminUsername, string secretName, string publicDnsName, string databaseName, bool multitenant, string? licenseFileUrl, string? authenticationEmail, string? aadAppClientId, bool aadAuthIsMultitenant, string encryptionKeyBlobSasUrl)
+    private List<V1EnvVar> BuildEnvVars(string adminUsername, string secretName, string publicDnsName, string databaseName, bool multitenant, string? licenseFileUrl, string? authenticationEmail, string? aadAppClientId, bool aadAuthIsMultitenant)
     {
         var envVars = new List<V1EnvVar>
         {
@@ -547,7 +548,7 @@ public class FkhCreateContainer : FkhServiceBase
                     SecretKeyRef = new V1SecretKeySelector { Name = "encryption-secret", Key = "encryptionPassword" }
                 }
             },
-            new() { Name = "ContainerBlobContainer", Value = encryptionKeyBlobSasUrl },
+            CreateContainerBlobSasEnvVar(secretName),
         };
 
         if (!string.IsNullOrWhiteSpace(licenseFileUrl))

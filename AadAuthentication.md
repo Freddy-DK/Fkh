@@ -37,6 +37,33 @@ The container's web client URL will use the `/BC/SignIn` path for AAD login inst
 
 ---
 
+## Running tests
+
+`fkh runtests` works on AAD containers the same way as on NavUserPassword containers. No password or token is passed by the caller, and `--authenticationEmail` is not used for the test session.
+
+Business Central refuses app-only (service-to-service) tokens for the UI client session that the test runner needs. So on AAD containers the test worker runs the tests through a second, internal service tier:
+
+1. On the first `runtests`, [`Initialize-FkhTestInstance.ps1`](ContainerScripts/Initialize-FkhTestInstance.ps1) creates the service tier `FkhTest` on the same database. It copies the main tier's settings and changes `ClientServicesCredentialType` to `NavUserPassword`, moves the ports to 7145–7149, and turns off the task scheduler and web services.
+2. A web client for `FkhTest` is published on `http://127.0.0.1:8181/`. It is bound to localhost only and is not exposed by the Kubernetes service.
+3. The tests sign in there as the container admin user (`username`/`password` env vars), exactly like on NavUserPassword containers.
+
+The test tier keeps running for later runs until the pod restarts, and it uses extra memory while it runs. The first run on a container takes longer while the tier starts.
+
+To hide that start time, start the tier in the background as soon as the container is ready, then publish apps as usual:
+
+```powershell
+fkh waitforcontainer --name $c --useOIDC
+fkh invokescript --name $c --nowait --useOIDC --command "powershell.exe -NoProfile -File C:\run\my\Initialize-FkhTestInstance.ps1"
+# publish apps ...
+fkh runtests --name $c --extensionId $id --useOIDC
+```
+
+`runtests` waits for the tier if it is still starting. To free the memory without a restart, run the same `invokescript` command with `-Remove` appended.
+
+AAD containers created before this change need a restart (`stopcontainer`/`startcontainer`) so they download the updated container scripts. No backend change is required.
+
+---
+
 ## Prerequisites
 
 The Function's managed identity needs the `Application.ReadWrite.OwnedBy` Microsoft Graph permission. This is granted automatically by Terraform during deployment — no manual steps required.
@@ -49,3 +76,5 @@ The Function's managed identity needs the `Application.ReadWrite.OwnedBy` Micros
 |-------|-------|-----|
 | "Failed to create AAD App Registration" | Managed identity lacks Graph permissions | Re-run `terraform apply` to ensure the `Application.ReadWrite.OwnedBy` role is assigned |
 | "Insufficient privileges to complete the operation" | Same as above | Check the managed identity's Graph API permissions in Azure Portal → Enterprise Applications |
+| "Container test execution does not support 'AccessControlService' client authentication" | The container still runs the old container scripts | Restart the container |
+| "Tenant '...' is not operational on the 'FkhTest' test service tier" | The test tier did not start within 5 minutes | Check `GetContainerEventLog`; retry `runtests` |

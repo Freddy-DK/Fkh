@@ -69,7 +69,7 @@ public class FkhScaleContainer : FkhServiceBase
         await EnsureWindowsNodeReadyAsync(client, useSpot);
         await CleanupPlaceholderPodAsync(client, useSpot);
 
-        // Generate a fresh container blob SAS URL and inject it as an env var
+        // Renew the container blob SAS and redeploy, which also recovers a pod that failed on an expired SAS
         await InjectContainerBlobContainerEnvAsync(client, appName, deploymentName);
 
         var result = await ScaleAsync(parameters, 1);
@@ -215,25 +215,7 @@ public class FkhScaleContainer : FkhServiceBase
     {
         try
         {
-            var sasUrl = await GenerateContainerBlobSasUrlAsync(appName);
-
-            // Patch the deployment to add/update the ContainerBlobContainer env var with a fresh SAS
-            var deployment = await client.ReadNamespacedDeploymentAsync(deploymentName, Namespace);
-            var container = deployment.Spec.Template.Spec.Containers[0];
-            container.Env ??= new List<V1EnvVar>();
-
-            var existing = container.Env.FirstOrDefault(e => e.Name == "ContainerBlobContainer");
-            if (existing != null)
-            {
-                existing.Value = sasUrl;
-                existing.ValueFrom = null;
-            }
-            else
-            {
-                container.Env.Add(new V1EnvVar { Name = "ContainerBlobContainer", Value = sasUrl });
-            }
-
-            await client.ReplaceNamespacedDeploymentAsync(deployment, deploymentName, Namespace);
+            await RenewContainerBlobSasAndRedeployAsync(client, appName, deploymentName);
             Logger.LogInformation("Injected ContainerBlobContainer env var for container '{AppName}'.", appName);
         }
         catch (Exception ex)

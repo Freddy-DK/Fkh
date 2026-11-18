@@ -26,6 +26,7 @@ var host = new HostBuilder()
         services.AddSingleton<FkhGetContainerLog>();
         services.AddSingleton<FkhGetContainerEventLog>();
         services.AddSingleton<FkhAutoStop>();
+        services.AddSingleton<FkhContainerBlobSas>();
         services.AddSingleton<FkhAllowSqlAccess>();
         services.AddSingleton<FkhAllowWinRmAccess>();
         services.AddSingleton<FkhListImages>();
@@ -34,6 +35,7 @@ var host = new HostBuilder()
         services.AddSingleton<FkhListVMs>();
         services.AddSingleton<FkhInvokeSqlCmd>();
         services.AddSingleton<FkhInvokeScript>();
+        services.AddSingleton<FkhRunTests>();
         services.AddSingleton<FkhImportTestToolkit>();
         services.AddSingleton<FkhWaitForContainer>();
         services.AddSingleton<FkhGetDatabaseUploadSas>();

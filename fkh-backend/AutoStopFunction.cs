@@ -12,8 +12,9 @@ public class AutoStopFunction
     private readonly FkhAllowWinRmAccess _winRmAccess;
     private readonly FkhClusterSchedule _clusterSchedule;
     private readonly FkhUsageSnapshot _usageSnapshot;
+    private readonly FkhContainerBlobSas _containerBlobSas;
 
-    public AutoStopFunction(ILogger<AutoStopFunction> logger, FkhAutoStop autoStop, FkhAllowSqlAccess sqlAccess, FkhAllowWinRmAccess winRmAccess, FkhClusterSchedule clusterSchedule, FkhUsageSnapshot usageSnapshot)
+    public AutoStopFunction(ILogger<AutoStopFunction> logger, FkhAutoStop autoStop, FkhAllowSqlAccess sqlAccess, FkhAllowWinRmAccess winRmAccess, FkhClusterSchedule clusterSchedule, FkhUsageSnapshot usageSnapshot, FkhContainerBlobSas containerBlobSas)
     {
         _logger = logger;
         _autoStop = autoStop;
@@ -21,6 +22,7 @@ public class AutoStopFunction
         _winRmAccess = winRmAccess;
         _clusterSchedule = clusterSchedule;
         _usageSnapshot = usageSnapshot;
+        _containerBlobSas = containerBlobSas;
     }
 
     [Function("AutoStop")]
@@ -60,6 +62,15 @@ public class AutoStopFunction
         catch (Exception ex)
         {
             _logger.LogError(ex, "Cluster schedule check failed.");
+        }
+
+        try
+        {
+            await _containerBlobSas.CheckAndRenewAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Container blob SAS maintenance failed.");
         }
 
         _usageSnapshot.TrackHeartbeatIfDue();
